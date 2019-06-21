@@ -15,17 +15,8 @@ LEARNING_RATE = 5e-4
 LEARNING_RATE_DECAY = 0.99
 USE_LSTM = True
 map_fn = tf.map_fn
-#
-#
-# def as_bytes(num, final_size):
-#     res = []
-#     for _ in range(final_size):
-#         res.append(num % 2)
-#         num //= 2
-#     return res
 
 
-## two functions below are meaningless...
 def generate_sine_batch(batch_size):
 
     sine_size = 1000
@@ -137,7 +128,7 @@ class Model:
             print("Shape: ", v.shape)
             # print(v)
 
-    def train_batch(self, current_learning_rate=LEARNING_RATE, batch_size=40, iterations=500, generate_batch=generate_sine_batch):
+    def train_batch(self, generate_batch, current_learning_rate=LEARNING_RATE, batch_size=40, iterations=500):
 
         epoch_error = 0
 
@@ -163,6 +154,120 @@ class Model:
             self.outputs: valid_y,
         })
         return valid_mse, valid_prediction
+
+
+class Model_seq2seq:
+    def __init__(self, input_size, output_size, batch_size, use_lstm=True, rnn_hidden=RNN_HIDDEN):
+        # graph input/output size
+        self.input_size = input_size
+        self.output_size = output_size
+        self.batch_size = batch_size
+
+        # session
+        self.session = None
+        self.saver = None
+
+        # graph nodes
+        self.rnnnodes = rnn_hidden
+        self.use_lstm = use_lstm
+        self.inputs = None
+        self.outputs = None
+        self.predicted_outputs = None
+        self.error = None
+        self.train_fn = None
+        # learning parameter
+        self.learning_rate = None
+        self.inputs_encoder = None
+        self.inputs_decoder = None
+        self.targets = None
+        self.initial_state = None
+        self.rnn_states = None
+        self.rnn_outputs = None
+        self.rnn_state_decoder = None
+
+    def build(self):
+
+        tf.reset_default_graph()
+        tf.set_random_seed(1)
+
+        cell = tf.nn.rnn_cell.BasicLSTMCell(self.rnnnodes, state_is_tuple=True)
+        self.learning_rate = tf.placeholder(tf.float32, shape=())  # (time, batch, in)
+        self.inputs_encoder = tf.placeholder(tf.float32, (None, None, self.input_size))  # (batch_size, window, in)
+        self.inputs_decoder = tf.placeholder(tf.float32, (None, None, self.input_size)) # (batch_size, window, out)
+        self.targets = tf.placeholder(tf.float32, (None, None, self.input_size))  # (batch_size, window, out)
+
+        batch_size = tf.shape(self.inputs_encoder)[0]
+        print('batch_size: ', batch_size.get_shape())
+        self.initial_state = cell.zero_state(batch_size, tf.float32)
+        _, self.rnn_states = tf.nn.dynamic_rnn(cell, self.inputs_encoder, initial_state=self.initial_state)
+        self.rnn_outputs, self.rnn_state_decoder = tf.nn.dynamic_rnn(cell, self.inputs_decoder, initial_state=self.rnn_states)
+
+        def final_projection(x):
+            return layers.linear(x, num_outputs=self.output_size, activation_fn=None)
+
+        # apply projection to every timestep.
+        self.predicted_outputs = map_fn(final_projection, self.rnn_outputs)
+        error = tf.squared_difference(self.predicted_outputs, self.targets)
+        self.error = tf.reduce_mean(error)
+
+        # optimize
+        self.train_fn = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(error)
+        self.session = tf.Session()
+        self.saver = tf.train.Saver()
+        self.session.run(tf.global_variables_initializer())
+
+        # trainable variables
+        variables_names = [v.name for v in tf.trainable_variables()]
+        values = self.session.run(variables_names)
+
+        print("input size: ", self.input_size)
+
+        for k, v in zip(variables_names, values):
+            print("Variable: ", k)
+            print("Shape: ", v.shape)
+            # print(v)
+
+    def train_batch(self, rebalancing_dates_counter, model_path, generate_batch, current_learning_rate=LEARNING_RATE, iterations=100):
+
+        epoch_error = 0
+
+        if rebalancing_dates_counter > 0:
+            self.saver.restore(self.session, model_path)
+
+        for _ in range(iterations):
+            x, y, z = generate_batch()
+            epoch_error += self.session.run([self.error, self.train_fn], {
+                self.inputs_encoder: x,
+                self.inputs_decoder: y,
+                self.targets: z,
+                self.learning_rate: current_learning_rate
+            })[0]
+        return epoch_error
+
+    def save_model(self, model_path):
+        save_path = self.saver.save(self.session, model_path)
+        print("Model saved in path: %s" % save_path)
+
+    def predict_batch(self, seed_sequence, window, model_path):
+        # Feed the seed sequence to warm up the RNN.
+        self.saver.restore(self.session, model_path)
+        print("Model restored.")
+        feed_dict = {self.inputs_encoder: seed_sequence}
+        state = self.session.run(self.rnn_states, feed_dict=feed_dict)
+
+        # Now create predictions step-by-step.
+        prediction = seed_sequence[:, -1, :]  # Last prediction from seed sequence
+        prediction = prediction[np.newaxis, :, :]
+        predictions = []
+        for step in range(window):
+            # get the prediction
+            feed_dict = {self.inputs_decoder: prediction,
+                         self.rnn_states: state}
+            state, prediction = self.session.run([self.rnn_state_decoder, self.predicted_outputs], feed_dict=feed_dict)
+            predictions.append(prediction)
+
+        predictions = np.concatenate(predictions, axis=1).mean(axis=1).reshape((-1))
+        return predictions
 
 
 def test_train_validate_seq():

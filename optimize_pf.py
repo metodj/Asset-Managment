@@ -19,7 +19,6 @@ def read_batch_multi(X, batch_size, future=10, nr_taps=2, batch_start=0):
     y[0, :, :] = s.rolling(future).mean().iloc[future+nr_taps-1:, :]
     return x, y
 
-
 def RNNLSTM(X):
 
     def generate_batch(N):
@@ -34,10 +33,13 @@ def RNNLSTM(X):
     hidden_nodes = 15
     x_s = X.shape[1]     # columns
 
+    batch_size = X.shape[0] - future - nr_taps + 1
+    print("BATCH SIZE:")
+    print(batch_size)
+
     model = ls.Model(input_size=nr_taps*x_s, output_size=x_s, rnn_hidden=hidden_nodes)
     model.build()
     for epoch in range(10):
-        # print(X.shape[0] - future - nr_taps + 1)
         epoch_error = model.train_batch(generate_batch=generate_batch, batch_size=X.shape[0]-future-nr_taps+1)
         print(epoch_error)
     last_x = np.zeros((1, 1, nr_taps * x_s))
@@ -128,14 +130,15 @@ def optimize(x, ra, method=None):
 if __name__ == '__main__':
 
     # load data ###################################################################
-    method = "by_mean"
+    method = 'js_mean'
     risk_aversion = 1
     window = 150
 
     # set dates (and freq)
-    dtindex = pd.bdate_range('2000-06-16', '2018-12-09', weekmask='Fri', freq='C')
+    dtindex = pd.bdate_range('1992-12-31', '2015-12-28', weekmask='Fri', freq='C')
     rebalancing_period = window
     rebalancing_dates = dtindex[window-1::rebalancing_period]
+    # print(rebalancing_dates)
     df = pd.read_csv('markets_new.csv', delimiter=',')
     df0 = pd.DataFrame(data=df.values, columns=df.columns, index=pd.to_datetime(df['Date'], format='%d/%m/%Y'))
     df0 = df0.reindex(dtindex)
@@ -150,7 +153,6 @@ if __name__ == '__main__':
         last = returns.index[-2]
 
         if today in rebalancing_dates:  # re-optimize and get new weights
-            print(today)
             weights.loc[today, :] = optimize(returns, risk_aversion, method)
         else:  # no re-optimization, re-balance the weights
             weights.loc[today, :] = weights.loc[last, :] * (1 + returns.loc[today, :]) \
@@ -160,7 +162,15 @@ if __name__ == '__main__':
 
     plt.figure
     pnl.cumsum().plot()
-    plt.title('Sharpe : {:.3f}'.format(pnl.mean()/pnl.std()*np.sqrt(52)))
+
+    # Max-Drawdown calculation
+    md = pnl.cumsum()[window:]
+    Roll_Max = md.rolling(window=md.shape[0], min_periods=1).max()
+    Daily_Drawdown = md / Roll_Max - 1.0
+    #Daily_Drawdown.plot()
+
+    plt.title('Sharpe : {:.3f} \n Total return: {:.3f} \n Max drawdown: {:.3f}'. \
+              format(pnl.mean()/pnl.std()*np.sqrt(52), pnl.cumsum().iloc[-1], abs(Daily_Drawdown.min())))
 
     plt.figure
     df0.pct_change().cumsum().plot()

@@ -7,12 +7,13 @@ import matplotlib.pyplot as plt
 
 # Constants
 X_DIM = 1 # 2
-INPUT_SIZE    = X_DIM
-RNN_HIDDEN    = 2
-OUTPUT_SIZE   = 1
+INPUT_SIZE = X_DIM
+RNN_HIDDEN = 2
+OUTPUT_SIZE = 1
 # TINY          = 1e-6    # to avoid NaNs in logs
 LEARNING_RATE = 5e-4
 LEARNING_RATE_DECAY = 0.99
+NUM_LAYERS = 2
 USE_LSTM = True
 map_fn = tf.map_fn
 
@@ -70,10 +71,11 @@ def generate_sine_seq_batch(batch_size, seq_length=2):
 
 
 class Model:
-    def __init__(self, input_size=INPUT_SIZE, output_size=OUTPUT_SIZE, use_lstm=True, rnn_hidden=RNN_HIDDEN):
+    def __init__(self, num_layers=NUM_LAYERS, input_size=INPUT_SIZE, output_size=OUTPUT_SIZE, use_lstm=True, rnn_hidden=RNN_HIDDEN):
         # graph input/output size
         self.input_size = input_size
         self.output_size = output_size
+        self.num_layers = num_layers
 
         # session
         self.session = None
@@ -94,7 +96,13 @@ class Model:
         tf.reset_default_graph()
         tf.set_random_seed(1)
 
-        cell = tf.nn.rnn_cell.BasicLSTMCell(self.rnnnodes, state_is_tuple=True)
+        if self.num_layers == 1:
+            cell = tf.nn.rnn_cell.BasicLSTMCell(self.rnnnodes, state_is_tuple=True)
+        else:
+            cell = tf.nn.rnn_cell.MultiRNNCell(
+                [tf.nn.rnn_cell.LSTMCell(self.rnnnodes)
+                 for _ in range(self.num_layers)])
+
         self.learning_rate = tf.placeholder(tf.float32, shape=())  # (time, batch, in)
         self.inputs = tf.placeholder(tf.float32, (None, None, self.input_size))  # (time, batch, in)
         self.outputs = tf.placeholder(tf.float32, (None, None, self.output_size)) # (time, batch, out)
@@ -116,6 +124,7 @@ class Model:
         self.train_fn = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(error)
         self.session = tf.Session()
         self.session.run(tf.global_variables_initializer())
+        self.saver = tf.train.Saver()
 
         # trainable variables
         variables_names = [v.name for v in tf.trainable_variables()]
@@ -128,7 +137,13 @@ class Model:
             print("Shape: ", v.shape)
             # print(v)
 
-    def train_batch(self, generate_batch, current_learning_rate=LEARNING_RATE, batch_size=40, iterations=500):
+    def restore_model(self, rebalancing_date, model_path):
+        if rebalancing_date >= 1:
+            self.saver.restore(self.session, model_path)
+            print("Model restored.")
+
+    def train_batch(self, generate_batch,
+                    current_learning_rate=LEARNING_RATE, batch_size=40, iterations=500):
 
         epoch_error = 0
 
@@ -148,6 +163,10 @@ class Model:
         })
         return valid_prediction
 
+    def save_model(self, model_path):
+        save_path = self.saver.save(self.session, model_path)
+        print("Model saved in path: %s" % save_path)
+
     def validate_batch(self, valid_x, valid_y):
         valid_mse, valid_prediction = self.session.run([self.error, self.predicted_outputs], {
             self.inputs: valid_x,
@@ -156,7 +175,7 @@ class Model:
         return valid_mse, valid_prediction
 
 
-class Model_seq2seq:
+class Model_Seq2seq:
     def __init__(self, input_size, output_size, batch_size, use_lstm=True, rnn_hidden=RNN_HIDDEN):
         # graph input/output size
         self.input_size = input_size
@@ -227,12 +246,9 @@ class Model_seq2seq:
             print("Shape: ", v.shape)
             # print(v)
 
-    def train_batch(self, rebalancing_dates_counter, model_path, generate_batch, current_learning_rate=LEARNING_RATE, iterations=100):
+    def train_batch(self, generate_batch, current_learning_rate=LEARNING_RATE, iterations=100):
 
         epoch_error = 0
-
-        if rebalancing_dates_counter > 0:
-            self.saver.restore(self.session, model_path)
 
         for _ in range(iterations):
             x, y, z = generate_batch()
@@ -244,14 +260,17 @@ class Model_seq2seq:
             })[0]
         return epoch_error
 
+    def restore_model(self, rebalancing_date, model_path):
+        if rebalancing_date >= 1:
+            self.saver.restore(self.session, model_path)
+            print("Model restored.")
+
     def save_model(self, model_path):
         save_path = self.saver.save(self.session, model_path)
         print("Model saved in path: %s" % save_path)
 
-    def predict_batch(self, seed_sequence, window, model_path):
+    def predict_batch(self, seed_sequence, window):
         # Feed the seed sequence to warm up the RNN.
-        self.saver.restore(self.session, model_path)
-        print("Model restored.")
         feed_dict = {self.inputs_encoder: seed_sequence}
         state = self.session.run(self.rnn_states, feed_dict=feed_dict)
 

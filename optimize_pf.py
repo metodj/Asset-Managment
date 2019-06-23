@@ -19,19 +19,19 @@ def read_batch_multi(X, batch_size, future=10, nr_taps=2, batch_start=0):
     y[0, :, :] = s.rolling(future).mean().iloc[future+nr_taps-1:, :]
     return x, y
 
-def RNNLSTM(X):
-
-    def generate_batch(N):
-        assert(X.shape[0] > N)
-        x, y = read_batch_multi(X, N, future=future, nr_taps=nr_taps)
-        ys = 0.1*y + 0.9*y.mean(axis=2)[:, :, np.newaxis]       # shrinkage
-
-        return x, ys
+def RNNLSTM(X, rebalancing_dates_counter, model_path):
 
     future = 25
     nr_taps = 5
     hidden_nodes = 15
-    x_s = X.shape[1]     # columns
+    x_s = X.shape[1]  # columns
+
+    def generate_batch(N):
+        assert(X.shape[0] > N)
+        x, y = read_batch_multi(X, N, future=future, nr_taps=nr_taps)
+        ys = 0.1*y + 0.9*y.mean(axis=2)[:, :, np.newaxis]  # shrinkage
+
+        return x, ys
 
     batch_size = X.shape[0] - future - nr_taps + 1
     print("BATCH SIZE:")
@@ -39,9 +39,13 @@ def RNNLSTM(X):
 
     model = ls.Model(input_size=nr_taps*x_s, output_size=x_s, rnn_hidden=hidden_nodes)
     model.build()
+    model.restore_model(rebalancing_dates_counter, model_path)
     for epoch in range(10):
         epoch_error = model.train_batch(generate_batch=generate_batch, batch_size=X.shape[0]-future-nr_taps+1)
         print(epoch_error)
+        if epoch_error < 1e-5:
+            break
+    model.save_model(model_path)
     last_x = np.zeros((1, 1, nr_taps * x_s))
     for i in range(nr_taps):
         last_x[0, 0, i*x_s:(i+1)*x_s] = X.iloc[-nr_taps+i, :]
@@ -81,7 +85,7 @@ def by_mean(X):
     return ((np.sum(X, axis=0)/sigma**2 + mu_0/sigma_0**2)/(m/sigma**2 + 1/sigma_0**2)).values
 
 
-def optimize(x, ra, method=None):
+def optimize(x, ra, rebalancing_dates_counter, model_path, method=None):
 
     ret = x.mean().fillna(0).values
 
@@ -97,7 +101,7 @@ def optimize(x, ra, method=None):
         ret = by_mean(x)
 
     if method is 'LSTM_Multi':
-        ret = RNNLSTM(x)
+        ret = RNNLSTM(x, rebalancing_dates_counter, model_path)
 
     # one of the baselines
     if method is 'equal_weights':
@@ -130,14 +134,14 @@ def optimize(x, ra, method=None):
 if __name__ == '__main__':
 
     # load data ###################################################################
-    method = 'equal_weights'
+    method = 'LSTM_Multi'
     risk_aversion = 1
-    window = 52
+    window = 150
 
     # set dates (and freq)
     dtindex = pd.bdate_range('1992-12-31', '2015-12-28', weekmask='Fri', freq='C')
     rebalancing_period = window
-    rebalancing_dates = dtindex[window-1::rebalancing_period]
+    rebalancing_dates = dtindex[4*window-1::rebalancing_period] #to warm-up LSTM
     # print(rebalancing_dates)
     df = pd.read_csv('markets_new.csv', delimiter=',')
     df0 = pd.DataFrame(data=df.values, columns=df.columns, index=pd.to_datetime(df['Date'], format='%d/%m/%Y'))
@@ -147,27 +151,37 @@ if __name__ == '__main__':
     input_returns = df0.pct_change().fillna(0)
     input_returns = input_returns.iloc[1:, :]
     weights = pd.DataFrame(data=np.nan, columns=input_returns.columns, index=input_returns.index)
+
+    # param for restoring the LSTM model
+    rebalancing_dates_counter = 0
+    model_path = "model_lstm.ckpt"
+
     for date in dtindex[window - 1:]:
         today = date
         returns = input_returns.loc[:today, :] # .tail(window)
         last = returns.index[-2]
 
         if today in rebalancing_dates:  # re-optimize and get new weights
-            weights.loc[today, :] = optimize(returns, risk_aversion, method)
+            print("rebalancing date: ", today)
+            weights.loc[today, :] = optimize(returns, risk_aversion, rebalancing_dates_counter, model_path, method)
+            rebalancing_dates_counter += 1
         else:  # no re-optimization, re-balance the weights
             weights.loc[today, :] = weights.loc[last, :] * (1 + returns.loc[today, :]) \
                                     / (1 + (weights.loc[last, :] * returns.loc[today, :]).sum())
 
     pnl = (weights.shift(1)*input_returns).sum(axis=1)
 
-    plt.figure
-    pnl.cumsum().plot()
 
     # Max-Drawdown calculation
     md = pnl.cumsum()[window:]
     Roll_Max = md.rolling(window=md.shape[0], min_periods=1).max()
-    Daily_Drawdown = md / Roll_Max - 1.0
-    #Daily_Drawdown.plot()
+    # Daily_Drawdown = md / Roll_Max - 1.0
+    Daily_Drawdown = md - Roll_Max
+
+
+
+    plt.figure
+    pnl.cumsum().plot()
 
     plt.title('Sharpe : {:.3f} \n Total return: {:.3f} \n Max drawdown: {:.3f}'. \
               format(pnl.mean()/pnl.std()*np.sqrt(52), pnl.cumsum().iloc[-1], abs(Daily_Drawdown.min())))

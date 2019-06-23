@@ -1,10 +1,10 @@
 import optimize_pf_ale as opt
 import numpy as np
 
-methods = ['equal_weights', 'Sample_mean', 'HMM', 'HMM_with_VIX', 'js_mean', 'by_mean']
-#methods = ['HMM', 'HMM_with_VIX']
+methods = ['HMMLearn_expanded','HMMLearn', 'equal_weights', 'Sample_mean', 'HMM', 'HMM_expanded', 'js_mean', 'by_mean']
+#methods = ['HMMLearn', 'Sample_mean', 'HMM', 'equal_weights']
 risk_aversion = 1
-window = 120
+window = 52
 
 results = np.zeros([len(methods), 4])
 for method in methods:

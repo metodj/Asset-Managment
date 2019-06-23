@@ -59,14 +59,30 @@ def HMM(X):
     posteriori_prob, mu_s, cov_s, pred = hmm.expectation_maximization(X, K, iter, p)
 
     return pred
-"""
-def HMMLearn(X):
-    K = 3
-    iter = 30
-    model = hmml.GaussianHMM(n_components= K, n_iter= iter)
-    model.fit(X)
-    """
 
+def HMMLearn(X, expanded_data):
+    K = 3
+    iter = 500
+    model = hmml.GaussianHMM(n_components= K, n_iter= iter)
+
+    if expanded_data:
+        model.fit(X[['VIX', 'FVX', 'GSPC', 'GDAXI']])
+        states = pd.DataFrame(model.predict(X[['VIX', 'FVX', 'GSPC', 'GDAXI']]))
+        states["Date"] = X.index
+        states.set_index('Date', inplace=True)
+        states.rename(columns={0: "State"}, inplace=True)
+        X_with_states = states.join(X, on='Date')
+        X_with_states.drop(columns=['VIX', 'FVX', 'GSPC', 'GDAXI'], inplace=True)
+        last_state = states.values[-1][0]
+
+        return X_with_states[X_with_states['State'] == last_state].drop(columns=['State']).mean().values
+
+    else:
+        model.fit(X)
+        states = pd.DataFrame(model.predict(X))
+
+        last_state = states.values[-1][0]
+        return model.means_[last_state]
 
 
 def js_mean(X):
@@ -100,12 +116,19 @@ def optimize(x, ra, method=None):
     if method is 'HMM':
         ret = HMM(x)
 
-    if method is 'HMM_with_VIX':
+    if method is 'HMM_expanded':
         ret = HMM(x)[4:]
+        x.drop(columns=['VIX', 'FVX', 'GSPC', 'GDAXI'], inplace=True)
+
+    if method is 'HMMLearn_expanded':
+        ret = HMMLearn(x, True)
         x.drop(columns=['VIX', 'FVX', 'GSPC', 'GDAXI'], inplace=True)
 
     if method is 'by_mean':
         ret = by_mean(x)
+
+    if method is "HMMLearn":
+        ret = HMMLearn(x, False)
 
     if method is 'LSTM_Multi':
         ret = RNNLSTM(x)
@@ -137,8 +160,6 @@ def optimize(x, ra, method=None):
     u = np.ones(k + 1)
     sCov = sparse.csr_matrix(cov)
 
-    print(x.shape, ret)
-
     problem.setup(sCov, -ret, sA, l, u)
 
     # Solve problem
@@ -150,7 +171,7 @@ def optimize(x, ra, method=None):
 if __name__ == '__main__':
 
     # load data ###################################################################
-    method = 'HMM_with_VIX'
+    method = 'HMM_expanded'
     risk_aversion = 1
     window = 52
 
@@ -163,7 +184,7 @@ if __name__ == '__main__':
 
     df0 = pd.DataFrame(data=df.values, columns=df.columns, index=pd.to_datetime(df['Date'], format='%d/%m/%Y'))
 
-    if method == "HMM_with_VIX":
+    if "expanded" in method:
         #Adding indices to the data frame
 
         for filename in ['VIX', 'FVX', 'GSPC', 'GDAXI']:
@@ -181,7 +202,7 @@ if __name__ == '__main__':
 
 
 
-    if method == "HMM_with_VIX":
+    if "expanded" in method:
         df_extended = df0.copy()
         df0.drop(columns=['VIX', 'FVX', 'GSPC', 'GDAXI'], inplace=True)
         input_returns_extended = df_extended.pct_change().fillna(0)
@@ -192,12 +213,12 @@ if __name__ == '__main__':
     weights = pd.DataFrame(data=np.nan, columns=input_returns.columns, index=input_returns.index)
     for date in dtindex[window - 1:]:
         today = date
-        returns = input_returns.loc[:today, :].tail(window)
+        returns = input_returns.loc[:today, :] #.tail(window)
         print(date)
         last = returns.index[-2]
 
         if today in rebalancing_dates:  # re-optimize and get new weights
-            if method == "HMM_with_VIX":
+            if "expanded" in method:
                 returns_ext = input_returns_extended.loc[:today, :].tail(window)
                 weights.loc[today, :] = optimize(returns_ext, risk_aversion, method)
             else:
@@ -245,9 +266,9 @@ if __name__ == '__main__':
 def run_pipeline(method, risk_aversion, window):
 
     # set dates (and freq)
-    #dtindex = pd.bdate_range('1992-12-31', '2015-12-28', weekmask='Fri', freq='C')
-    dtindex = pd.bdate_range('2005-12-31', '2015-12-28', freq='C')
-    rebalancing_period = window
+    dtindex = pd.bdate_range('1992-12-31', '2015-12-28', weekmask='Fri', freq='C')
+    #dtindex = pd.bdate_range('2000-12-31', '2015-12-28', weekmask='Fri', freq='C')
+    rebalancing_period = int(window)
     rebalancing_dates = dtindex[window - 1::rebalancing_period]
     # print(rebalancing_dates)
     df = pd.read_csv('markets_new.csv', delimiter=',')
@@ -256,7 +277,7 @@ def run_pipeline(method, risk_aversion, window):
 
     print('Shape of initial frame {}'.format(df0.shape))
 
-    if method == "HMM_with_VIX":
+    if "expanded" in method:
         # Adding indices to the data frame
 
         for filename in ['VIX', 'FVX', 'GSPC', 'GDAXI']:
@@ -271,7 +292,7 @@ def run_pipeline(method, risk_aversion, window):
     df0 = df0.reindex(dtindex)
     df0 = df0.drop(columns=['Date'])
 
-    if method == "HMM_with_VIX":
+    if "expanded" in method:
         df_extended = df0.copy()
         df0.drop(columns=['VIX', 'FVX', 'GSPC', 'GDAXI'], inplace=True)
         input_returns_extended = df_extended.pct_change().fillna(0)
@@ -283,11 +304,11 @@ def run_pipeline(method, risk_aversion, window):
     for date in dtindex[window - 1:]:
         today = date
         returns = input_returns.loc[:today, :].tail(window)
-        #print(date)
+        #print(returns.shape)
         last = returns.index[-2]
 
         if today in rebalancing_dates:  # re-optimize and get new weights
-            if method == "HMM_with_VIX":
+            if "expanded" in method:
                 returns_ext = input_returns_extended.loc[:today, :].tail(window)
                 weights.loc[today, :] = optimize(returns_ext, risk_aversion, method)
             else:
@@ -316,6 +337,11 @@ def run_pipeline(method, risk_aversion, window):
     expected_return = pnl.mean()
     down_stdev = np.sqrt(df['downside_returns'].mean())
     sortino_ratio = expected_return / down_stdev * np.sqrt(52)
+
+    # Annualized return
+    pnl_shape = pnl.cumsum().shape[0]
+    # change to 252 if we have daily data!!
+    ann_return = (1 + pnl.cumsum().iloc[-1]) ** (52 / pnl_shape) - 1
 
     print(' {} \n Sharpe : {:.3f} \n Sortino: {:.3f} \n Total return: {:.3f} \n Max DD: {:.3f}'. \
           format(method, sharpe, sortino_ratio, ret, mdd))

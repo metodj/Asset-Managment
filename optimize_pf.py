@@ -134,14 +134,16 @@ def optimize(x, ra, rebalancing_dates_counter, model_path, method=None):
 if __name__ == '__main__':
 
     # load data ###################################################################
-    method = 'LSTM_Multi'
+    method = 'equal_weights'
     risk_aversion = 1
     window = 150
+    warm_up_rnn = 4 #number of windows, for rnn to warmup
 
     # set dates (and freq)
     dtindex = pd.bdate_range('1992-12-31', '2015-12-28', weekmask='Fri', freq='C')
     rebalancing_period = window
-    rebalancing_dates = dtindex[4*window-1::rebalancing_period] #to warm-up LSTM
+
+    rebalancing_dates = dtindex[warm_up_rnn*window-1::rebalancing_period] #to warm-up LSTM
     # print(rebalancing_dates)
     df = pd.read_csv('markets_new.csv', delimiter=',')
     df0 = pd.DataFrame(data=df.values, columns=df.columns, index=pd.to_datetime(df['Date'], format='%d/%m/%Y'))
@@ -173,7 +175,7 @@ if __name__ == '__main__':
 
 
     # Max-Drawdown calculation
-    md = pnl.cumsum()[window:]
+    md = pnl.cumsum()[warm_up_rnn*window:]
     Roll_Max = md.rolling(window=md.shape[0], min_periods=1).max()
     # Daily_Drawdown = md / Roll_Max - 1.0
     Daily_Drawdown = md - Roll_Max
@@ -183,8 +185,13 @@ if __name__ == '__main__':
     plt.figure
     pnl.cumsum().plot()
 
-    plt.title('Sharpe : {:.3f} \n Total return: {:.3f} \n Max drawdown: {:.3f}'. \
-              format(pnl.mean()/pnl.std()*np.sqrt(52), pnl.cumsum().iloc[-1], abs(Daily_Drawdown.min())))
+    # Annualized return
+    pnl_shape = pnl.cumsum()[warm_up_rnn*window:].shape[0]
+    # change to 252 if we have daily data!!
+    ann_return = (1 + pnl.cumsum().iloc[-1])**(52/pnl_shape) - 1
+
+    plt.title('Sharpe : {:.3f} \n Total return: {:.3f}, Annunalized return: {:.3f} \n Max drawdown: {:.3f}'. \
+              format(pnl.mean()/pnl.std()*np.sqrt(52), pnl.cumsum().iloc[-1], ann_return, abs(Daily_Drawdown.min())))
 
     plt.figure
     df0.pct_change().cumsum().plot()

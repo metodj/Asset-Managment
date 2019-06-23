@@ -130,9 +130,9 @@ def optimize(x, ra, method=None):
 if __name__ == '__main__':
 
     # load data ###################################################################
-    method = 'js_mean'
+    method = 'equal_weights'
     risk_aversion = 1
-    window = 150
+    window = 52
 
     # set dates (and freq)
     dtindex = pd.bdate_range('1992-12-31', '2015-12-28', weekmask='Fri', freq='C')

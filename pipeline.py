@@ -1,11 +1,12 @@
-import optimize_pf as opt
+import optimize_pf_ale as opt
 import numpy as np
 
-methods = ['equal_weights', 'HMM', 'HMM_with_VIX', 'js_mean', 'by_mean']
-risk_aversion = 10000
-window = 10
+methods = ['equal_weights', 'Sample_mean', 'HMM', 'HMM_with_VIX', 'js_mean', 'by_mean']
+#methods = ['HMM', 'HMM_with_VIX']
+risk_aversion = 1
+window = 120
 
-results = np.zeros([5, 4])
+results = np.zeros([len(methods), 4])
 for method in methods:
     results[methods.index(method),:] = opt.run_pipeline(method, risk_aversion, window)
 

@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from sklearn import covariance as cv
 import HMM as hmm
 import LSTM as ls
+from hmmlearn import hmm as hmml
 
 
 def read_batch_multi(X, batch_size, future=10, nr_taps=2, batch_start=0):
@@ -58,6 +59,14 @@ def HMM(X):
     posteriori_prob, mu_s, cov_s, pred = hmm.expectation_maximization(X, K, iter, p)
 
     return pred
+"""
+def HMMLearn(X):
+    K = 3
+    iter = 30
+    model = hmml.GaussianHMM(n_components= K, n_iter= iter)
+    model.fit(X)
+    """
+
 
 
 def js_mean(X):
@@ -105,6 +114,10 @@ def optimize(x, ra, method=None):
     if method is 'equal_weights':
         return (1/x.shape[1]) * np.ones(x.shape[1])
 
+    #Second baseline
+    if method is 'Sample_mean':
+        ret = x.mean().fillna(0).values
+
     cov = ra * pd.DataFrame(data=cv.oas(x)[0], index=x.columns, columns=x.columns).fillna(0)
     #cov = ra * pd.DataFrame(data=pd.DataFrame(x).cov(), index=x.columns, columns=x.columns).fillna(0)
 
@@ -137,9 +150,9 @@ def optimize(x, ra, method=None):
 if __name__ == '__main__':
 
     # load data ###################################################################
-    method = 'HMM'
-    risk_aversion = 10000
-    window = 150
+    method = 'HMM_with_VIX'
+    risk_aversion = 1
+    window = 52
 
     # set dates (and freq)
     dtindex = pd.bdate_range('1992-12-31', '2015-12-28', weekmask='Fri', freq='C')
@@ -148,7 +161,7 @@ if __name__ == '__main__':
     # print(rebalancing_dates)
     df = pd.read_csv('markets_new.csv', delimiter=',')
 
-    df0 = pd.DataFrame(data=df.values, columns=df.columns, index=pd.to_datetime(df['Date']))
+    df0 = pd.DataFrame(data=df.values, columns=df.columns, index=pd.to_datetime(df['Date'], format='%d/%m/%Y'))
 
     if method == "HMM_with_VIX":
         #Adding indices to the data frame
@@ -156,7 +169,7 @@ if __name__ == '__main__':
         for filename in ['VIX', 'FVX', 'GSPC', 'GDAXI']:
             df1 = pd.read_csv(filename + '.csv', delimiter=',')
 
-            df1 = pd.DataFrame(data=df1.values, columns=df1.columns, index=pd.to_datetime(df1['Date']))
+            df1 = pd.DataFrame(data=df1.values, columns=df1.columns, index=pd.to_datetime(df1['Date'], format='%Y-%m-%d'))
             df1 = pd.DataFrame(df1['Close']).rename(columns={"Close": filename})
             df0 = df1.join(df0, on='Date')
 
@@ -211,7 +224,14 @@ if __name__ == '__main__':
     print(' {} \n Sharpe : {:.3f} \n Total return: {:.3f} \n Max drawdown Metod: {:.3f} \n Max DD Ale: {:.3f}'. \
               format(method, pnl.mean()/pnl.std()*np.sqrt(52), pnl.cumsum().iloc[-1], abs(Daily_Drawdown_metod.min()), -Daily_Drawdown.min()))
 
-
+    target = 0
+    df = pd.DataFrame(data=pnl)
+    df['downside_returns'] = 0
+    df.loc[pnl < target, 'downside_returns'] = pnl ** 2
+    expected_return = pnl.mean()
+    down_stdev = np.sqrt(df['downside_returns'].mean())
+    sortino_ratio = expected_return / down_stdev * np.sqrt(52)
+    print('Sortino: {}'.format(sortino_ratio))
 
     plt.figure
     df0.pct_change().cumsum().plot()
@@ -225,13 +245,16 @@ if __name__ == '__main__':
 def run_pipeline(method, risk_aversion, window):
 
     # set dates (and freq)
-    dtindex = pd.bdate_range('1992-12-31', '2015-12-28', weekmask='Fri', freq='C')
+    #dtindex = pd.bdate_range('1992-12-31', '2015-12-28', weekmask='Fri', freq='C')
+    dtindex = pd.bdate_range('2005-12-31', '2015-12-28', freq='C')
     rebalancing_period = window
     rebalancing_dates = dtindex[window - 1::rebalancing_period]
     # print(rebalancing_dates)
     df = pd.read_csv('markets_new.csv', delimiter=',')
 
-    df0 = pd.DataFrame(data=df.values, columns=df.columns, index=pd.to_datetime(df['Date']))
+    df0 = pd.DataFrame(data=df.values, columns=df.columns, index=pd.to_datetime(df['Date'], format='%d/%m/%Y'))
+
+    print('Shape of initial frame {}'.format(df0.shape))
 
     if method == "HMM_with_VIX":
         # Adding indices to the data frame
@@ -239,11 +262,11 @@ def run_pipeline(method, risk_aversion, window):
         for filename in ['VIX', 'FVX', 'GSPC', 'GDAXI']:
             df1 = pd.read_csv(filename + '.csv', delimiter=',')
 
-            df1 = pd.DataFrame(data=df1.values, columns=df1.columns, index=pd.to_datetime(df1['Date']))
+            df1 = pd.DataFrame(data=df1.values, columns=df1.columns, index=pd.to_datetime(df1['Date'], format='%Y-%m-%d'))
             df1 = pd.DataFrame(df1['Close']).rename(columns={"Close": filename})
             df0 = df1.join(df0, on='Date')
 
-        print(df0)
+        print('Shape of mod frame {}'.format(df0.shape))
 
     df0 = df0.reindex(dtindex)
     df0 = df0.drop(columns=['Date'])
@@ -260,7 +283,7 @@ def run_pipeline(method, risk_aversion, window):
     for date in dtindex[window - 1:]:
         today = date
         returns = input_returns.loc[:today, :].tail(window)
-        print(date)
+        #print(date)
         last = returns.index[-2]
 
         if today in rebalancing_dates:  # re-optimize and get new weights
@@ -283,10 +306,18 @@ def run_pipeline(method, risk_aversion, window):
 
     sharpe = pnl.mean() / pnl.std() * np.sqrt(52)
     ret = pnl.cumsum().iloc[-1]
-    mdd1 = abs(Daily_Drawdown_metod.min())
-    mdd2 = -Daily_Drawdown.min()
+    #mdd1 = abs(Daily_Drawdown_metod.min())
+    mdd = -Daily_Drawdown.min()
 
-    print(' {} \n Sharpe : {:.3f} \n Total return: {:.3f} \n Max drawdown Metod: {:.3f} \n Max DD Ale: {:.3f}'. \
-          format(method, sharpe, ret, mdd1, mdd2))
+    target = 0.05
+    df = pd.DataFrame(data=pnl)
+    df['downside_returns'] = 0
+    df.loc[pnl < target, 'downside_returns'] = pnl ** 2
+    expected_return = pnl.mean()
+    down_stdev = np.sqrt(df['downside_returns'].mean())
+    sortino_ratio = expected_return / down_stdev * np.sqrt(52)
 
-    return np.array([sharpe, ret, mdd1, mdd2])
+    print(' {} \n Sharpe : {:.3f} \n Sortino: {:.3f} \n Total return: {:.3f} \n Max DD: {:.3f}'. \
+          format(method, sharpe, sortino_ratio, ret, mdd))
+
+    return np.array([sharpe, sortino_ratio, ret, mdd])

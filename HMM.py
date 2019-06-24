@@ -221,7 +221,7 @@ if __name__ == '__main__':
     """
 
     dtindex = pd.bdate_range('2011-12-31', '2012-12-28', freq='C')
-    df = pd.read_csv('VIX.csv', delimiter=',')
+    df = pd.read_csv('GSPC.csv', delimiter=',')
 
     df0 = pd.DataFrame(data=df.values, columns=df.columns, index=pd.to_datetime(df['Date'], format='%Y-%m-%d'))
     df0 = pd.DataFrame(df0['Close']).rename(columns={"Close": "GSPC"})

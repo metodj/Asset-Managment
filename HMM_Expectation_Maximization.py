@@ -100,16 +100,38 @@ def multivariate_gaussian(pos, mu, Sigma):
     return np.exp(-fac / 2) / N
 
 if __name__ == '__main__':
+    """
+    file = 'input_data.csv'
+    data = pd.read_csv(file, delimiter=';')
+    print(data)
+    names = data.columns """
 
-    file = 'input_data.xlsx'
-    data = pd.read_excel(file, 'input')
-    dates = data['Date']
-    ids = [1, 2, 6]
-    data = data.iloc[:, ids]
-    names = data.columns
+    dtindex = pd.bdate_range('2009-12-31', '2012-12-28', freq='C')
+    df = pd.read_csv('GSPC.csv', delimiter=',')
+
+    df0 = pd.DataFrame(data=df.values, columns=df.columns, index=pd.to_datetime(df['Date'], format='%Y-%m-%d'))
+    df0 = pd.DataFrame(df0['Close']).rename(columns={"Close": "GSPC"})
+
+    for filename in ['FVX', 'VIX']:
+        df1 = pd.read_csv(filename + '.csv', delimiter=',')
+
+        df1 = pd.DataFrame(data=df1.values, columns=df1.columns,
+                           index=pd.to_datetime(df1['Date'], format='%Y-%m-%d'))
+        df1 = pd.DataFrame(df1['Close']).rename(columns={"Close": filename})
+        df0 = df1.join(df0, on='Date')
+
+    df0 = df0.reindex(dtindex)
+    # df0 = df0.drop(columns=['Date'])
+    print(df0)
+    df0.dropna(axis=0, inplace=True)
+    df0 = df0.pct_change()
+    # print(df0)
+    data = df0
+    print(data)
+    data.dropna(inplace=True)
 
     K = 3             # number of clusters
-    iter = 50         # number of epochs (EM algo)
+    iter = 30         # number of epochs (EM algo)
 
     posteriori_prob, mu_s, cov_s = expectation_maximization(data, K, iter=iter)
 
@@ -133,7 +155,7 @@ if __name__ == '__main__':
         plt.subplot(312), plt.plot(nty), plt.title('T10')
         plt.subplot(313), plt.plot(nvx), plt.title('VIX')
 
-    g = pd.DataFrame(posteriori_prob.T, index=dates, columns=range(0, K))
+    g = pd.DataFrame(posteriori_prob.T, columns=range(0, K))
     g.to_csv('regimes.csv')
     plt.show()
 

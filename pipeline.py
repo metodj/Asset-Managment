@@ -6,12 +6,12 @@ from matplotlib import cm, pyplot as plt
 from matplotlib.dates import YearLocator, MonthLocator
 
 
-methods = ['HMMLearn_expanded', 'HMM', 'HMM_mod', 'equal_weights', 'Sample_mean', 'HMM_expanded', 'js_mean', 'by_mean']
-#methods = ['HMM', 'HMM_mod', 'HMM_expanded', 'Sample_mean', 'equal_weights']
+#methods = ['HMMLearn_expanded', 'HMM', 'HMM_mod', 'equal_weights', 'Sample_mean', 'HMM_expanded', 'js_mean', 'by_mean']
+methods = ['HMM', 'HMM_mod', 'Sample_mean'] # HMM_expanded', 'Sample_mean', 'equal_weights']
 risk_aversion = 1
-window = 252
-rebalancing_period = 126
-dtindex = pd.bdate_range('2005-12-31', '2015-12-28', freq='C')
+window = 104
+rebalancing_period = 12
+dtindex = pd.bdate_range('2005-12-31', '2015-12-28', weekmask='Fri', freq='C')
 
 results = np.zeros([len(methods), 5])
 

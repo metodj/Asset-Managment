@@ -53,15 +53,23 @@ def RNNLSTM(X):
 
 
 def HMM(X):
-    K = 3
+    K = 2
     p = .1
     iter = 20
     posteriori_prob, mu_s, cov_s, pred = hmm.expectation_maximization(X, K, iter, p)
 
     return pred
 
+def HMM_mod(X):
+    K = 2
+    p = .1
+    iter = 20
+    posteriori_prob, mu_s, cov_s, pred, states = hmm.expectation_maximization_mod(X[['VIX', 'FVX', 'GSPC', 'GDAXI']], X.drop(columns=['VIX', 'FVX', 'GSPC', 'GDAXI']), K, iter, p)
+
+    return pred
+
 def HMMLearn(X, expanded_data):
-    K = 3
+    K = 2
     iter = 500
     model = hmml.GaussianHMM(n_components= K, n_iter= iter)
 
@@ -127,6 +135,10 @@ def optimize(x, ra, method=None):
     if method is 'by_mean':
         ret = by_mean(x)
 
+    if method is 'HMM_mod':
+        ret = HMM_mod(x)
+        x.drop(columns=['VIX', 'FVX', 'GSPC', 'GDAXI'], inplace=True)
+
     if method is "HMMLearn":
         ret = HMMLearn(x, False)
 
@@ -137,12 +149,14 @@ def optimize(x, ra, method=None):
     if method is 'equal_weights':
         return (1/x.shape[1]) * np.ones(x.shape[1])
 
+    cov = ra * pd.DataFrame(data=cv.oas(x)[0], index=x.columns, columns=x.columns).fillna(0)
+
     #Second baseline
     if method is 'Sample_mean':
         ret = x.mean().fillna(0).values
+        cov = ra * pd.DataFrame(data=pd.DataFrame(x).cov(), index=x.columns, columns=x.columns).fillna(0)
 
-    cov = ra * pd.DataFrame(data=cv.oas(x)[0], index=x.columns, columns=x.columns).fillna(0)
-    #cov = ra * pd.DataFrame(data=pd.DataFrame(x).cov(), index=x.columns, columns=x.columns).fillna(0)
+
 
     problem = osqp.OSQP()
     k = len(ret)
@@ -160,7 +174,7 @@ def optimize(x, ra, method=None):
     u = np.ones(k + 1)
     sCov = sparse.csr_matrix(cov)
 
-    problem.setup(sCov, -ret, sA, l, u)
+    problem.setup(sCov, -ret, sA, l, u, verbose=False)
 
     # Solve problem
     res = problem.solve()
@@ -171,7 +185,7 @@ def optimize(x, ra, method=None):
 if __name__ == '__main__':
 
     # load data ###################################################################
-    method = 'HMM_expanded'
+    method = 'HMM_mod'
     risk_aversion = 1
     window = 52
 
@@ -184,7 +198,7 @@ if __name__ == '__main__':
 
     df0 = pd.DataFrame(data=df.values, columns=df.columns, index=pd.to_datetime(df['Date'], format='%d/%m/%Y'))
 
-    if "expanded" in method:
+    if "mod" in method:
         #Adding indices to the data frame
 
         for filename in ['VIX', 'FVX', 'GSPC', 'GDAXI']:
@@ -202,7 +216,7 @@ if __name__ == '__main__':
 
 
 
-    if "expanded" in method:
+    if "mod" in method:
         df_extended = df0.copy()
         df0.drop(columns=['VIX', 'FVX', 'GSPC', 'GDAXI'], inplace=True)
         input_returns_extended = df_extended.pct_change().fillna(0)
@@ -213,12 +227,12 @@ if __name__ == '__main__':
     weights = pd.DataFrame(data=np.nan, columns=input_returns.columns, index=input_returns.index)
     for date in dtindex[window - 1:]:
         today = date
-        returns = input_returns.loc[:today, :] #.tail(window)
+        returns = input_returns.loc[:today, :].tail(window)
         print(date)
         last = returns.index[-2]
 
         if today in rebalancing_dates:  # re-optimize and get new weights
-            if "expanded" in method:
+            if "mod" in method:
                 returns_ext = input_returns_extended.loc[:today, :].tail(window)
                 weights.loc[today, :] = optimize(returns_ext, risk_aversion, method)
             else:
@@ -263,12 +277,10 @@ if __name__ == '__main__':
     plt.show()
 
 
-def run_pipeline(method, risk_aversion, window):
+def run_pipeline(method, risk_aversion, window, rebalancing_period, dtindex):
 
     # set dates (and freq)
-    dtindex = pd.bdate_range('1992-12-31', '2015-12-28', weekmask='Fri', freq='C')
-    #dtindex = pd.bdate_range('2000-12-31', '2015-12-28', weekmask='Fri', freq='C')
-    rebalancing_period = int(window)
+    #dtindex = pd.bdate_range('1992-12-31', '2015-12-28', weekmask='Fri', freq='C')
     rebalancing_dates = dtindex[window - 1::rebalancing_period]
     # print(rebalancing_dates)
     df = pd.read_csv('markets_new.csv', delimiter=',')
@@ -277,7 +289,7 @@ def run_pipeline(method, risk_aversion, window):
 
     print('Shape of initial frame {}'.format(df0.shape))
 
-    if "expanded" in method:
+    if ("expanded" in method) or ("mod" in method):
         # Adding indices to the data frame
 
         for filename in ['VIX', 'FVX', 'GSPC', 'GDAXI']:
@@ -292,7 +304,7 @@ def run_pipeline(method, risk_aversion, window):
     df0 = df0.reindex(dtindex)
     df0 = df0.drop(columns=['Date'])
 
-    if "expanded" in method:
+    if ("expanded" in method) or ("mod" in method):
         df_extended = df0.copy()
         df0.drop(columns=['VIX', 'FVX', 'GSPC', 'GDAXI'], inplace=True)
         input_returns_extended = df_extended.pct_change().fillna(0)
@@ -308,7 +320,7 @@ def run_pipeline(method, risk_aversion, window):
         last = returns.index[-2]
 
         if today in rebalancing_dates:  # re-optimize and get new weights
-            if "expanded" in method:
+            if ("expanded" in method) or ("mod" in method):
                 returns_ext = input_returns_extended.loc[:today, :].tail(window)
                 weights.loc[today, :] = optimize(returns_ext, risk_aversion, method)
             else:
@@ -322,10 +334,10 @@ def run_pipeline(method, risk_aversion, window):
     # Max-Drawdown calculation
     md = pnl.cumsum()[window:]
     Roll_Max = md.rolling(window=md.shape[0], min_periods=1).max()
-    Daily_Drawdown_metod = md / Roll_Max - 1.0
+    #Daily_Drawdown_metod = md / Roll_Max - 1.0
     Daily_Drawdown = md - Roll_Max
 
-    sharpe = pnl.mean() / pnl.std() * np.sqrt(52)
+    sharpe = pnl.mean() / pnl.std() * np.sqrt(252)
     ret = pnl.cumsum().iloc[-1]
     #mdd1 = abs(Daily_Drawdown_metod.min())
     mdd = -Daily_Drawdown.min()
@@ -336,14 +348,14 @@ def run_pipeline(method, risk_aversion, window):
     df.loc[pnl < target, 'downside_returns'] = pnl ** 2
     expected_return = pnl.mean()
     down_stdev = np.sqrt(df['downside_returns'].mean())
-    sortino_ratio = expected_return / down_stdev * np.sqrt(52)
+    sortino_ratio = expected_return / down_stdev * np.sqrt(252)
 
     # Annualized return
     pnl_shape = pnl.cumsum().shape[0]
     # change to 252 if we have daily data!!
-    ann_return = (1 + pnl.cumsum().iloc[-1]) ** (52 / pnl_shape) - 1
+    ann_return = (1 + pnl.cumsum().iloc[-1]) ** (252 / pnl_shape) - 1
 
     print(' {} \n Sharpe : {:.3f} \n Sortino: {:.3f} \n Total return: {:.3f} \n Max DD: {:.3f}'. \
-          format(method, sharpe, sortino_ratio, ret, mdd))
+          format(method, sharpe, sortino_ratio, ret, mdd, ann_return))
 
-    return np.array([sharpe, sortino_ratio, ret, mdd])
+    return np.array([sharpe, sortino_ratio, ret, mdd, ann_return])

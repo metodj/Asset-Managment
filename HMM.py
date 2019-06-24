@@ -32,7 +32,7 @@ def expectation_maximization(data, K, iter = 50, p = .3):
     L = data.shape[0]
     dim = data.shape[1]
 
-    print(L)
+    print(L) #is the number of samples
 
     # inits
     p0 = (np.ones((K, 1))/K).ravel()
@@ -46,8 +46,6 @@ def expectation_maximization(data, K, iter = 50, p = .3):
         sa[:, :, k] = np.eye(dim)
 
     for j in range(0, iter):
-        print(j)
-
         # E STEP ##################################################################################################
         em = np.zeros((K, L))
         for k in range(0, K):
@@ -90,12 +88,15 @@ def expectation_maximization(data, K, iter = 50, p = .3):
             #mu[:, k] = np.matmul(data.values.T, g[k, :].T) / np.max((np.sum(g[k, :]), epsilon))
             #mu[:, k] = 0.1*aux1 + 0.9*np.ones((dim,))*0.01
             dataLocal = data.loc[maxInd == k, :]
+
+            #Compute the mean of each asset for each state
             if dataLocal.shape[0] > 1:
                 mu[:, k] = by_mean(dataLocal) # IMPORTANT: here we are using only datapoints that belong to state k !!
             else:
                 mu[:, k] = 0
 
             for i in range(0, L):
+                #(X_i - mu_k)^T(X_i - mu_k) * alpha * beta
                 se[:, :, k] = se[:, :, k] + g[k, i] * np.matmul(np.atleast_2d((data.iloc[i, :].values - mu[:, k])).T, np.atleast_2d((data.iloc[i, :].values - mu[:, k])))
             sa[:, :, k] = se[:, :, k] / np.max((np.sum(g[k, :]), epsilon))
 
@@ -105,6 +106,100 @@ def expectation_maximization(data, K, iter = 50, p = .3):
         pred = np.matmul(mu, np.matmul(A.T, g[:, L-1]))
     return g, mu, sa, pred
 
+
+def expectation_maximization_mod(data_train, tradable_assets, K, iter=50, p=.3):
+    # efficient implementation using alpha/beta algorithm (Bishop, chap. 13.2.2)
+    epsilon = .00001
+    L = data_train.shape[0]
+    dim = data_train.shape[1] # is the number of samples
+    dim_tradable = tradable_assets.shape[1]
+
+    # inits
+    p0 = (np.ones((K, 1)) / K).ravel()
+    ah = np.ones((K, L)) / K  # fwd message
+    bh = np.ones((K, L)) / K  # bkw message
+
+    A = init_A(p, K)  # state transition matrix
+    mu = 0.1 * np.random.rand(dim, K)  # mu
+    mu_tradable = 0.1 * np.random.rand(dim_tradable, K) # mean of the tradable assets
+    sa = np.zeros((dim, dim, K))  # covariance matrix
+    for k in range(0, K):
+        sa[:, :, k] = np.eye(dim)
+
+    for j in range(0, iter):
+        # E STEP ##################################################################################################
+        em = np.zeros((K, L))
+        for k in range(0, K):
+            for i in range(0, L):
+                # emission probabilities
+                em[k, i] = multivariate_normal.pdf(data_train.iloc[i, :].values, mean=mu[:, k], cov=sa[:, :, k],
+                                                   allow_singular=True)
+
+        # forward message
+        ah[:, 0] = p0 * em[:, 0] / np.matmul(p0.T, em[:, 0])
+        c = np.ones((L, 1))
+        for i in range(1, L):
+            aux = em[:, i] * np.matmul(A.T, ah[:, i - 1])
+            c[i] = np.sum(aux)
+            if c[i] == 0:
+                print('scaling factor 0')
+            ah[:, i] = aux / c[i]
+        pX = np.prod(c)
+        # backward
+        bh[:, L - 1] = np.ones(K)
+        for i in range(L - 2, -1, -1):
+            if c[i + 1] == 0:
+                print('scaling factor 0')
+            bh[:, i] = np.matmul(A, em[:, i + 1] * bh[:, i + 1] / c[i + 1])
+
+        g = np.zeros((K, L))
+        h = np.zeros((K, K, L))
+        for i in range(0, L):
+            g[:, i] = ah[:, i] * bh[:, i]
+            if i > 0:
+                for q in range(0, K):
+                    for p in range(0, K):
+                        h[q, p, i] = ah[q, i - 1] * em[p, i] * A[q, p] * bh[p, i] / c[i]
+
+        # M STEP ##################################################################################################
+        p0 = g[:, 0] / np.sum(g[:, 0])
+        se = sa
+        Factor = .01
+        #maxind rappresenta lo state more likely
+        maxInd = np.argmax(g, axis=0)
+        print(j)
+        print(maxInd)
+        for k in range(0, K):
+            # mu[:, k] = np.matmul(data.values.T, g[k, :].T) / np.max((np.sum(g[k, :]), epsilon))
+            # mu[:, k] = 0.1*aux1 + 0.9*np.ones((dim,))*0.01
+            dataLocal = data_train.loc[maxInd == k, :]
+
+            # Compute the mean of each asset for each state
+            if dataLocal.shape[0] > 1:
+                mu[:, k] = by_mean(dataLocal)  # IMPORTANT: here we are using only datapoints that belong to state k !!
+            else:
+                mu[:, k] = 0
+
+            dataLocal_trad = tradable_assets.loc[maxInd == k, :]
+            if dataLocal.shape[0] > 1:
+                mu_tradable[:, k] = by_mean(dataLocal_trad)
+            else:
+                mu_tradable[:, k] = 0
+
+
+            for i in range(0, L):
+                # (X_i - mu_k)^T(X_i - mu_k) * alpha * beta
+                se[:, :, k] = se[:, :, k] + g[k, i] * np.matmul(np.atleast_2d((data_train.iloc[i, :].values - mu[:, k])).T, np.atleast_2d((data_train.iloc[i, :].values - mu[:, k])))
+            sa[:, :, k] = se[:, :, k] / np.max((np.sum(g[k, :]), epsilon))
+
+        for q in range(0, K):
+            for p in range(0, K):
+                A[q, p] = h[q, p, :].sum() / np.max((h[q, :, :].sum(), epsilon))
+
+
+
+        pred = np.matmul(mu_tradable, np.matmul(A.T, g[:, L - 1]))
+    return g, mu, sa, pred, maxInd
 
 def multivariate_gaussian(pos, mu, Sigma):
 
@@ -118,16 +213,40 @@ def multivariate_gaussian(pos, mu, Sigma):
     return np.exp(-fac / 2) / N
 
 if __name__ == '__main__':
-
-    file = 'input_data.xlsx'
-    data = pd.read_excel(file, 'input')
-    dates = data['Date']
-    ids = [1, 2, 6]
-    data = data.iloc[:, ids]
+    """
+    file = 'input_data.csv'
+    data = pd.read_csv(file, delimiter=';')
+    print(data)
     names = data.columns
+    """
+
+    dtindex = pd.bdate_range('2011-12-31', '2012-12-28', freq='C')
+    df = pd.read_csv('VIX.csv', delimiter=',')
+
+    df0 = pd.DataFrame(data=df.values, columns=df.columns, index=pd.to_datetime(df['Date'], format='%Y-%m-%d'))
+    df0 = pd.DataFrame(df0['Close']).rename(columns={"Close": "GSPC"})
+
+    for filename in ['FVX', 'VIX']:
+        df1 = pd.read_csv(filename + '.csv', delimiter=',')
+
+        df1 = pd.DataFrame(data=df1.values, columns=df1.columns,
+                           index=pd.to_datetime(df1['Date'], format='%Y-%m-%d'))
+        df1 = pd.DataFrame(df1['Close']).rename(columns={"Close": filename})
+        df0 = df1.join(df0, on='Date')
+
+    df0 = df0.reindex(dtindex)
+    # df0 = df0.drop(columns=['Date'])
+    print(df0)
+    df0.dropna(axis=0, inplace=True)
+    df0 = df0.pct_change()
+    #print(df0)
+    data =df0
+    print(data)
+    data.dropna(inplace=True)
+
 
     K = 4             # number of clusters
-    iter = 30         # number of iterations (of EM algo)
+    iter = 20         # number of iterations (of EM algo)
 
     posteriori_prob, mu_s, cov_s, pred = expectation_maximization(data, K, iter=iter)
     # regimes
@@ -135,9 +254,9 @@ if __name__ == '__main__':
 
     # annotated underlyings
     maxInd = np.argmax(posteriori_prob, axis=0)
-    sp = data.iloc[:, 0].cumsum()
+    sp = data.iloc[:, 2].cumsum()
     ty = data.iloc[:, 1].cumsum()
-    vx = data.iloc[:, 2].cumsum()
+    vx = data.iloc[:, 0].cumsum()
     plt.figure()
     for i in range(0, K):
         nsp = np.nan * sp
@@ -149,7 +268,10 @@ if __name__ == '__main__':
         plt.subplot(311), plt.plot(nsp), plt.title('SPX')
         plt.subplot(312), plt.plot(nty), plt.title('T10')
         plt.subplot(313), plt.plot(nvx), plt.title('VIX')
+        print(data.iloc[:, 2][maxInd == i])
+        print(data.iloc[:, 1][maxInd == i])
+        print(data.iloc[:, 0][maxInd == i])
 
-    g = pd.DataFrame(posteriori_prob.T, index=dates, columns=range(0, K))
+    g = pd.DataFrame(posteriori_prob.T, columns=range(0, K))
     g.to_csv('regimes.csv')
     plt.show()

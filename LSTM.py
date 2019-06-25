@@ -263,7 +263,7 @@ class Model_Seq2seq:
     def restore_model(self, rebalancing_date, model_path):
         if rebalancing_date >= 1:
             self.saver.restore(self.session, model_path)
-            print("Model restored.")
+            print("Model restored. Rebalancing date {}.".format(rebalancing_date))
 
     def save_model(self, model_path):
         save_path = self.saver.save(self.session, model_path)

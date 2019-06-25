@@ -6,13 +6,13 @@ from matplotlib import cm, pyplot as plt
 from matplotlib.dates import YearLocator, MonthLocator
 
 def plot_states():
-    dtindex = pd.bdate_range('2008-12-31', '2010-12-28', freq='C')
-    df = pd.read_csv('VIX.csv', delimiter=',')
+    dtindex = pd.bdate_range('2007-12-31', '2009-12-28', freq='C')
+    df = pd.read_csv('GSPC.csv', delimiter=',')
 
     df0 = pd.DataFrame(data=df.values, columns=df.columns, index=pd.to_datetime(df['Date'], format='%Y-%m-%d'))
-    df0 = pd.DataFrame(df0['Close']).rename(columns={"Close": "VIX"})
+    df0 = pd.DataFrame(df0['Close']).rename(columns={"Close": "GSPC"})
 
-    for filename in ['FVX', 'GSPC', 'GDAXI']:
+    for filename in ['FVX', 'VIX', "GDAXI"]:
         df1 = pd.read_csv(filename + '.csv', delimiter=',')
 
         df1 = pd.DataFrame(data=df1.values, columns=df1.columns,
@@ -21,44 +21,94 @@ def plot_states():
         df0 = df1.join(df0, on='Date')
 
     df0 = df0.reindex(dtindex)
-    #df0 = df0.drop(columns=['Date'])
-    df0 = df0.pct_change().fillna(0)
+    # df0 = df0.drop(columns=['Date'])
     print(df0)
+    # df0.dropna(axis=0, inplace=True)
+    df0 = df0.pct_change().fillna(0)
+    # print(df0)
+    data = df0
+    print(data)
+    # data.dropna(inplace=True)
 
-    K = 2
-    iter = 500
-    p = 0.4
-    posteriori_prob, mu_s, cov_s, pred, states = hmm.expectation_maximization_mod(df0, df0, K, iter, p)
+    K = 3  # number of clusters
+    iter = 30  # number of epochs (EM algo)
 
-    #model = hmml.GaussianHMM(n_components=K, n_iter=iter)
+    posteriori_prob, mu_s, cov_s, pred, states = hmm.expectation_maximization_mod(data, data, K, iter=iter)
 
-    print(states.shape, df0.shape)
+    # regimes
+    plt.plot(posteriori_prob.T)
 
-    for i in range(K):
-        print(len(states[states == i]))
+    # annotated underlyings
+    maxInd = np.argmax(posteriori_prob, axis=0)
+    dax = data.iloc[:, 0].cumsum()
+    vix = data.iloc[:, 1].cumsum()
+    fvx = data.iloc[:, 2].cumsum()
+    sp = data.iloc[:, 3].cumsum()
+    plt.figure()
+    for i in range(0, K):
+        ndax = np.nan * dax
+        nvix = np.nan * vix
+        nfvx = np.nan * fvx
+        nsp = np.nan * sp
+        nsp[maxInd == i] = sp[maxInd == i]
+        ndax[maxInd == i] = dax[maxInd == i]
+        nfvx[maxInd == i] = fvx[maxInd == i]
+        nvix[maxInd == i] = vix[maxInd == i]
+        plt.subplot(411), plt.plot(nsp), plt.title('SPX')
+        plt.subplot(412), plt.plot(ndax), plt.title('DAX')
+        plt.subplot(413), plt.plot(nfvx), plt.title('FVX')
+        plt.subplot(414), plt.plot(nvix), plt.title('VIX')
 
-    fig, axs = plt.subplots(
-        K,
-        sharex=True, sharey=True
-    )
-    colours = cm.rainbow(
-        np.linspace(0, 1, K)
-    )
+    g = pd.DataFrame(posteriori_prob.T, columns=range(0, K))
+    g.to_csv('regimes.csv')
+    plt.show()
 
-    for i, (ax, colour) in enumerate(zip(axs, colours)):
-        mask = states == i
-        ax.plot_date(
-            df0.index[mask],
-            df0['FVX'][mask],
-            ".", linestyle='none',
-            c=colour
-        )
-        ax.set_title("Hidden State #%s" % i)
-        ax.xaxis.set_major_locator(YearLocator())
-        ax.xaxis.set_minor_locator(MonthLocator())
-        ax.grid(True)
+def plot_wrong_states():
+    dtindex = pd.bdate_range('2007-12-31', '2009-12-28', freq='C')
+
+    df = pd.read_csv('markets_new.csv', delimiter=',')
+
+    df0 = pd.DataFrame(data=df.values, columns=df.columns, index=pd.to_datetime(df['Date'], format='%d/%m/%Y'))
+
+    df0 = df0.reindex(dtindex)
+    df0 = df0.drop(columns=['Date'])
+    data = df0.pct_change().fillna(0)
+
+    K = 3  # number of clusters
+    iter = 30  # number of epochs (EM algo)
+
+    print(data)
+
+    posteriori_prob, mu_s, cov_s, pred = hmm.expectation_maximization(data, K, iter=iter)
+
+    # regimes
+    plt.plot(posteriori_prob.T)
+
+    # annotated underlyings
+    maxInd = np.argmax(posteriori_prob, axis=0)
+    dax = data.iloc[:, 0].cumsum()
+    vix = data.iloc[:, 1].cumsum()
+    fvx = data.iloc[:, 2].cumsum()
+    sp = data.iloc[:, 3].cumsum()
+    plt.figure()
+    for i in range(0, K):
+        ndax = np.nan * dax
+        nvix = np.nan * vix
+        nfvx = np.nan * fvx
+        nsp = np.nan * sp
+        nsp[maxInd == i] = sp[maxInd == i]
+        ndax[maxInd == i] = dax[maxInd == i]
+        nfvx[maxInd == i] = fvx[maxInd == i]
+        nvix[maxInd == i] = vix[maxInd == i]
+        plt.subplot(411), plt.plot(nsp), plt.title('SPX')
+        plt.subplot(412), plt.plot(ndax), plt.title('DAX')
+        plt.subplot(413), plt.plot(nfvx), plt.title('FVX')
+        plt.subplot(414), plt.plot(nvix), plt.title('VIX')
+
+    g = pd.DataFrame(posteriori_prob.T, columns=range(0, K))
+    g.to_csv('regimes.csv')
     plt.show()
 
 
-plot_states()
-
+#plot_states()
+plot_wrong_states()

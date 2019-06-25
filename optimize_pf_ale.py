@@ -167,10 +167,13 @@ def optimize(x, ra, method=None,  window=0, window_back=0, rebalancing_dates_cou
 
     cov = ra * pd.DataFrame(data=cv.oas(x)[0], index=x.columns, columns=x.columns).fillna(0)
 
+    print(cov)
+
     #Second baseline
     if method is 'Sample_mean':
         ret = x.mean().fillna(0).values
         cov = ra * pd.DataFrame(data=pd.DataFrame(x).cov(), index=x.columns, columns=x.columns).fillna(0)
+        print(cov)
 
 
 
@@ -242,6 +245,7 @@ def run_pipeline(method, risk_aversion, window, rebalancing_period, dtindex, wee
                 weights.loc[today, :] = optimize(returns_ext, risk_aversion, method)
             else:
                 weights.loc[today, :] = optimize(returns, risk_aversion, method)
+
         else:  # no re-optimization, re-balance the weights
             print('{}: relocate assets to preserve wights'.format(today))
             weights.loc[today, :] = weights.loc[last, :] * (1 + returns.loc[today, :]) \
@@ -353,16 +357,16 @@ def run_pipeline_lstm(method, risk_aversion, window, window_back, start_investin
 if __name__ == '__main__':
 
     #PIPELINE SETTINGS
-    method = 'LSTM_Multi'
+    method = 'HMM_mod'
     risk_aversion = 1
 
     #Note: window and rebalancing_period always expressed in weeks
-    window = 52
-    rebalancing_period = 52
+    window = 104
+    rebalancing_period = 12
 
-    start_date = '2004-12-31'
+    start_date = '2005-12-31'
     end_date = '2015-12-28'
-    weekmask = True
+    weekmask = False
 
     if weekmask:
         dtindex = pd.bdate_range(start_date, end_date, weekmask='Fri', freq='C')

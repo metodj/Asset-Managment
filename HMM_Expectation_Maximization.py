@@ -112,7 +112,7 @@ if __name__ == '__main__':
     df0 = pd.DataFrame(data=df.values, columns=df.columns, index=pd.to_datetime(df['Date'], format='%Y-%m-%d'))
     df0 = pd.DataFrame(df0['Close']).rename(columns={"Close": "GSPC"})
 
-    for filename in ['FVX', 'VIX']:
+    for filename in ['FVX', 'VIX', "GDAXI"]:
         df1 = pd.read_csv(filename + '.csv', delimiter=',')
 
         df1 = pd.DataFrame(data=df1.values, columns=df1.columns,
@@ -123,12 +123,12 @@ if __name__ == '__main__':
     df0 = df0.reindex(dtindex)
     # df0 = df0.drop(columns=['Date'])
     print(df0)
-    df0.dropna(axis=0, inplace=True)
-    df0 = df0.pct_change()
+    #df0.dropna(axis=0, inplace=True)
+    df0 = df0.pct_change().fillna(0)
     # print(df0)
     data = df0
     print(data)
-    data.dropna(inplace=True)
+    #data.dropna(inplace=True)
 
     K = 3             # number of clusters
     iter = 30         # number of epochs (EM algo)
@@ -140,20 +140,24 @@ if __name__ == '__main__':
 
     # annotated underlyings
     maxInd = np.argmax(posteriori_prob, axis=0)
-    sp = data.iloc[:, 0].cumsum()
-    ty = data.iloc[:, 1].cumsum()
-    vx = data.iloc[:, 2].cumsum()
+    dax = data.iloc[:, 0].cumsum()
+    vix = data.iloc[:, 1].cumsum()
+    fvx = data.iloc[:, 2].cumsum()
+    sp = data.iloc[:, 3].cumsum()
     plt.figure()
     for i in range(0, K):
+        ndax = np.nan * dax
+        nvix = np.nan * vix
+        nfvx = np.nan * fvx
         nsp = np.nan * sp
-        nty = np.nan * ty
-        nvx = np.nan * vx
         nsp[maxInd == i] = sp[maxInd == i]
-        nty[maxInd == i] = ty[maxInd == i]
-        nvx[maxInd == i] = vx[maxInd == i]
+        ndax[maxInd == i] = dax[maxInd == i]
+        nfvx[maxInd == i] = fvx[maxInd == i]
+        nvix[maxInd == i] = vix[maxInd == i]
         plt.subplot(311), plt.plot(nsp), plt.title('SPX')
-        plt.subplot(312), plt.plot(nty), plt.title('T10')
-        plt.subplot(313), plt.plot(nvx), plt.title('VIX')
+        plt.subplot(312), plt.plot(ndax), plt.title('DAX')
+        plt.subplot(313), plt.plot(nfvx), plt.title('FVX')
+        plt.subplot(314), plt.plot(nvix), plt.title('VIX')
 
     g = pd.DataFrame(posteriori_prob.T, columns=range(0, K))
     g.to_csv('regimes.csv')

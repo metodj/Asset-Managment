@@ -190,7 +190,7 @@ class HMMPortfolioOptimizer:
 
 
         rebalancing_dates = self.dtindex[window - 1::rebalancing_period]
-        input_returns = self.tradable_assets.iloc[1:, :]
+        input_returns = self.tradable_assets
         weights = pd.DataFrame(data=np.nan, columns=input_returns.columns, index=input_returns.index)
         for date in self.dtindex[window - 1:]:
             today = date
@@ -257,7 +257,7 @@ if __name__ == '__main__':
     window = 104
     rebalancing_period = 12
 
-    start_date = '2005-12-31'
+    start_date = '2012-12-31'
     end_date = '2015-12-28'
     weekmask = False
 

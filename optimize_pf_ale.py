@@ -307,8 +307,7 @@ def run_pipeline_lstm(method, risk_aversion, window, window_back, start_investin
 
         if today in rebalancing_dates:  # re-optimize and get new weights
             print("rebalancing date: ", today)
-            weights.loc[today, :] = optimize(returns, risk_aversion, window, window_back, rebalancing_dates_counter,
-                                             method)
+            weights.loc[today, :] = optimize(returns, risk_aversion, method, window, window_back, rebalancing_dates_counter)
             rebalancing_dates_counter += 1
         else:  # no re-optimization, re-balance the weights
             weights.loc[today, :] = weights.loc[last, :] * (1 + returns.loc[today, :]) \
@@ -354,7 +353,7 @@ def run_pipeline_lstm(method, risk_aversion, window, window_back, start_investin
 if __name__ == '__main__':
 
     #PIPELINE SETTINGS
-    method = 'js_mean'
+    method = 'LSTM_Multi'
     risk_aversion = 1
 
     #Note: window and rebalancing_period always expressed in weeks

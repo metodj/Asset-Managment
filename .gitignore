@@ -105,4 +105,8 @@ venv.bak/
 
 #data
 .xlsx
-.csv
+
+
+model_lstm.ckpt.data-00000-of-00001
+model_lstm.ckpt.index
+model_lstm.ckpt.met

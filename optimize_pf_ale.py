@@ -102,7 +102,7 @@ def HMM(X):
     K = 3
     p = .1
     iter = 20
-    posteriori_prob, mu_s, cov_s, pred = hmm.expectation_maximization(X, K, iter, p)
+    posteriori_prob, mu_s, cov_s, pred = hmm.expectation_maximization_mod(X, K, iter, p)
 
     return pred
 

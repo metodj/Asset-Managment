@@ -136,7 +136,7 @@ def by_mean(X):
     return ((np.sum(X, axis=0)/sigma**2 + mu_0/sigma_0**2)/(m/sigma**2 + 1/sigma_0**2)).values
 
 
-def optimize(x, ra, window=0, window_back=0, rebalancing_dates_counter=0, method=None):
+def optimize(x, ra, method=None,  window=0, window_back=0, rebalancing_dates_counter=0):
 
     ret = x.mean().fillna(0).values
 
@@ -354,7 +354,7 @@ def run_pipeline_lstm(method, risk_aversion, window, window_back, start_investin
 if __name__ == '__main__':
 
     #PIPELINE SETTINGS
-    method = 'equal_weights'
+    method = 'js_mean'
     risk_aversion = 1
 
     #Note: window and rebalancing_period always expressed in weeks
@@ -375,7 +375,6 @@ if __name__ == '__main__':
     if "LSTM" in method:
         start_investing_period = '2004-12-31'
         window_back = 50
-        window = 10
         results = run_pipeline_lstm(method, risk_aversion, window, window_back, start_investing_period)
     else:
         results = run_pipeline(method, risk_aversion, window, rebalancing_period, dtindex, weekmask)

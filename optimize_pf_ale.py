@@ -154,7 +154,7 @@ def optimize(x, ra, method=None,  window=0, window_back=0, rebalancing_dates_cou
         x.drop(columns=['VIX', 'FVX', 'GSPC', 'GDAXI'], inplace=True)
 
     if method is 'LSTM_Multi':
-        model_path = "model_lstm.ckpt"
+        model_path = "./model_lstm.ckpt"
         ret = RNNLSTM(x, rebalancing_dates_counter, model_path)
 
     if method is 'LSTM_seq2seq':

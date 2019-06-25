@@ -254,6 +254,6 @@ if __name__ == '__main__':
 
     results = run_pipeline(method, risk_aversion, window, rebalancing_period, dtindex, weekmask)
 
-    print('============ RESULTS ============')
+    print('\n============ RESULTS ============')
     print('\nMethod: {}\nSharpe Ratio: {:.3f}\nSortino Ratio: {:.3f}\nMax DD: {:.3f}\nTotal return: {:.3f}\nAnnualized return:{:.3f}'. \
           format(method, results['sharpe'], results['sortino'], results['mdd'], results['return'], results['ann_return']))

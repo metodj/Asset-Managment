@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 from sklearn import covariance as cv
 import HMM as hmm
 import LSTM as ls
-from hmmlearn import hmm as hmml
 
 
 def read_batch_multi(X, batch_size, future=10, nr_taps=2, batch_start=0):
@@ -20,19 +19,32 @@ def read_batch_multi(X, batch_size, future=10, nr_taps=2, batch_start=0):
     y[0, :, :] = s.rolling(future).mean().iloc[future+nr_taps-1:, :]
     return x, y
 
-def RNNLSTM(X):
+
+def read_batch_multi_seq2seq_window_back(X, window=10, window_back=50):
+    n = X.shape[0] - window - window_back + 1
+    inputs_encoder = np.zeros((n, window_back, X.shape[1]))
+    inputs_decoder = np.zeros((n, window, X.shape[1]))
+    targets = np.zeros((n, window, X.shape[1]))
+    for i in range(n):
+        inputs_encoder[i, :, :] = X.iloc[i:i + window_back, :].values
+        inputs_decoder[i, :, :] = X.iloc[window_back - 1 + i:window_back - 1 + i + window, :].values
+        targets[i, :, :] = X.iloc[window_back + i:window_back + i + window, :].values
+    return inputs_encoder, inputs_decoder, targets
+
+
+def RNNLSTM(X, rebalancing_dates_counter, model_path):
+
+    future = 20
+    nr_taps = 10
+    hidden_nodes = 15
+    x_s = X.shape[1]  # columns
 
     def generate_batch(N):
         assert(X.shape[0] > N)
         x, y = read_batch_multi(X, N, future=future, nr_taps=nr_taps)
-        ys = 0.1*y + 0.9*y.mean(axis=2)[:, :, np.newaxis]       # shrinkage
+        ys = 0.1*y + 0.9*y.mean(axis=2)[:, :, np.newaxis]  # shrinkage
 
         return x, ys
-
-    future = 25
-    nr_taps = 5
-    hidden_nodes = 15
-    x_s = X.shape[1]     # columns
 
     batch_size = X.shape[0] - future - nr_taps + 1
     print("BATCH SIZE:")
@@ -40,9 +52,13 @@ def RNNLSTM(X):
 
     model = ls.Model(input_size=nr_taps*x_s, output_size=x_s, rnn_hidden=hidden_nodes)
     model.build()
+    model.restore_model(rebalancing_dates_counter, model_path)
     for epoch in range(10):
         epoch_error = model.train_batch(generate_batch=generate_batch, batch_size=X.shape[0]-future-nr_taps+1)
         print(epoch_error)
+        if epoch_error < 1e-5:  # form of early stopping
+            break
+    model.save_model(model_path)
     last_x = np.zeros((1, 1, nr_taps * x_s))
     for i in range(nr_taps):
         last_x[0, 0, i*x_s:(i+1)*x_s] = X.iloc[-nr_taps+i, :]
@@ -50,6 +66,36 @@ def RNNLSTM(X):
     out = model.predict_batch(last_x)
 
     return out[0].ravel()
+
+
+def RNNLSTM_seq2seq(X, window, window_back, rebalancing_dates_counter, model_path):
+    def generate_batch():
+        x, y, z = read_batch_multi_seq2seq_window_back(X)
+        return x, y, z
+
+    hidden_nodes = 20
+    x_s = X.shape[1]
+
+    batch_size = X.shape[0] - window - window_back + 1
+    print("BATCH SIZE:")
+    print(batch_size)
+
+    model = ls.Model_Seq2seq(input_size=x_s, output_size=x_s, batch_size=batch_size, rnn_hidden=hidden_nodes)
+    model.build()
+    model.restore_model(rebalancing_dates_counter, model_path)
+    if rebalancing_dates_counter % 5 == 0:
+        for epoch in range(5):
+            epoch_error = model.train_batch(generate_batch=generate_batch)
+            print(epoch_error)
+
+        model.save_model(model_path)
+        last_x = X.iloc[-window_back:, :].values.reshape((1, window_back, x_s))
+        out = model.predict_batch(last_x, window)
+    else:
+        last_x = X.iloc[-window_back:, :].values.reshape((1, window_back, x_s))
+        out = model.predict_batch(last_x, window)
+    print(out)
+    return out
 
 
 def HMM(X):
@@ -90,7 +136,7 @@ def by_mean(X):
     return ((np.sum(X, axis=0)/sigma**2 + mu_0/sigma_0**2)/(m/sigma**2 + 1/sigma_0**2)).values
 
 
-def optimize(x, ra, method=None):
+def optimize(x, ra, window=0, window_back=0, rebalancing_dates_counter=0, method=None):
 
     ret = x.mean().fillna(0).values
 
@@ -108,7 +154,12 @@ def optimize(x, ra, method=None):
         x.drop(columns=['VIX', 'FVX', 'GSPC', 'GDAXI'], inplace=True)
 
     if method is 'LSTM_Multi':
-        ret = RNNLSTM(x)
+        model_path = "model_lstm.ckpt"
+        ret = RNNLSTM(x, rebalancing_dates_counter, model_path)
+
+    if method is 'LSTM_seq2seq':
+        model_path = "model_seq2seq.ckpt"
+        ret = RNNLSTM_seq2seq(x, window, window_back, rebalancing_dates_counter, model_path)
 
     # one of the baselines
     if method is 'equal_weights':
@@ -216,32 +267,101 @@ def run_pipeline(method, risk_aversion, window, rebalancing_period, dtindex, wee
     #Return
     ret = pnl.cumsum().iloc[-1]
 
-    #Sortino
-    target = 0.05
-    df = pd.DataFrame(data=pnl)
-    df['downside_returns'] = 0
-    df.loc[pnl < target, 'downside_returns'] = pnl ** 2
-    expected_return = pnl.mean()
-    down_stdev = np.sqrt(df['downside_returns'].mean())
-    sortino_ratio = expected_return / down_stdev * np.sqrt(n)
-
     #Annualized return
     pnl_shape = pnl.cumsum().shape[0]
     ann_return = (1 + pnl.cumsum().iloc[-1]) ** (n / pnl_shape) - 1
 
-    return {"sharpe": sharpe, "sortino": sortino_ratio, "return": ret, "mdd": mdd, "ann_return": ann_return}
+    return {"sharpe": sharpe, "return": ret, "mdd": mdd, "ann_return": ann_return}
+
+def run_pipeline_lstm(method, risk_aversion, window, window_back, start_investing_period):
+    # set dates (and freq)
+    dtindex = pd.bdate_range('1992-12-31', '2015-12-28', weekmask='Fri', freq='C')
+    start_investing_period = dtindex.get_loc(start_investing_period)
+
+    rebalancing_period = window
+
+    rebalancing_dates = dtindex[start_investing_period::rebalancing_period]  # to warm-up LSTM
+    print("Start: ", rebalancing_dates[0])
+    df = pd.read_csv('markets_new.csv', delimiter=',')
+    df0 = pd.DataFrame(data=df.values, columns=df.columns, index=pd.to_datetime(df['Date'], format='%d/%m/%Y'))
+    df0 = df0.reindex(dtindex)
+    df0 = df0.drop(columns=['Date'])
+
+    input_returns = df0.pct_change().fillna(0)
+    input_returns = input_returns.iloc[1:, :]
+    weights = pd.DataFrame(data=np.nan, columns=input_returns.columns, index=input_returns.index)
+
+    # param for restoring the LSTM model
+    rebalancing_dates_counter = 0
+
+    for date in dtindex[window - 1:]:
+        today = date
+        if rebalancing_dates_counter == 0:
+            returns = input_returns.loc[:today, :]  # .tail(window)
+        else:
+            if method == 'LSTM_seq2seq':  # for seq2seq we need longer intermediate periods
+                returns = input_returns.loc[:today, :].tail(2 * window_back)
+            else:
+                returns = input_returns.loc[:today, :].tail(window)
+        last = returns.index[-2]
+
+        if today in rebalancing_dates:  # re-optimize and get new weights
+            print("rebalancing date: ", today)
+            weights.loc[today, :] = optimize(returns, risk_aversion, window, window_back, rebalancing_dates_counter,
+                                             method)
+            rebalancing_dates_counter += 1
+        else:  # no re-optimization, re-balance the weights
+            weights.loc[today, :] = weights.loc[last, :] * (1 + returns.loc[today, :]) \
+                                    / (1 + (weights.loc[last, :] * returns.loc[today, :]).sum())
+
+    pnl = (weights.shift(1) * input_returns).sum(axis=1)
+
+    # Max-Drawdown calculation
+    md = pnl.cumsum()[start_investing_period:]
+    Roll_Max = md.rolling(window=md.shape[0], min_periods=1).max()
+    # Daily_Drawdown = md / Roll_Max - 1.0
+    Daily_Drawdown = md - Roll_Max
+    mdd = -Daily_Drawdown.min()
+
+    plt.figure
+    pnl.cumsum().plot()
+
+    # Annualized return
+    pnl_shape = pnl.cumsum()[start_investing_period:].shape[0]
+    # change to 252 if we have daily data!!
+    ann_return = (1 + pnl.cumsum().iloc[-1]) ** (52 / pnl_shape) - 1
+
+    # sharpe
+    sharpe = pnl.mean() / pnl.std() * np.sqrt(52)
+
+    #cum return
+    ret = pnl.cumsum().iloc[-1]
+
+    plt.title('Sharpe : {:.3f} \n Total return: {:.3f}, Annunalized return: {:.3f} \n Max drawdown: {:.3f}'. \
+              format(sharpe, pnl.cumsum().iloc[-1], ann_return, abs(Daily_Drawdown.min())))
+
+    plt.figure
+    df0.pct_change().cumsum().plot()
+
+    plt.figure
+    weights.plot()
+
+    plt.show()
+
+    return {"sharpe": sharpe, "return": ret, "mdd": mdd, "ann_return": ann_return}
+
 
 if __name__ == '__main__':
 
     #PIPELINE SETTINGS
-    method = 'HMM_mod'
+    method = 'equal_weights'
     risk_aversion = 1
 
     #Note: window and rebalancing_period always expressed in weeks
     window = 52
     rebalancing_period = 52
 
-    start_date = '2012-12-31'
+    start_date = '2004-12-31'
     end_date = '2015-12-28'
     weekmask = True
 
@@ -252,8 +372,15 @@ if __name__ == '__main__':
         window = window * 5
         rebalancing_period = rebalancing_period * 5
 
-    results = run_pipeline(method, risk_aversion, window, rebalancing_period, dtindex, weekmask)
+    if "LSTM" in method:
+        start_investing_period = '2004-12-31'
+        window_back = 50
+        window = 10
+        results = run_pipeline_lstm(method, risk_aversion, window, window_back, start_investing_period)
+    else:
+        results = run_pipeline(method, risk_aversion, window, rebalancing_period, dtindex, weekmask)
+
 
     print('\n============ RESULTS ============')
-    print('\nMethod: {}\nSharpe Ratio: {:.3f}\nSortino Ratio: {:.3f}\nMax DD: {:.3f}\nTotal return: {:.3f}\nAnnualized return:{:.3f}'. \
-          format(method, results['sharpe'], results['sortino'], results['mdd'], results['return'], results['ann_return']))
+    print('\nMethod: {}\nSharpe Ratio: {:.3f}\nMax DD: {:.3f}\nTotal return: {:.3f}\nAnnualized return:{:.3f}'. \
+          format(method, results['sharpe'], results['mdd'], results['return'], results['ann_return']))

@@ -264,8 +264,7 @@ def run_pipeline(method, risk_aversion, window, rebalancing_period, dtindex, wee
     Daily_Drawdown = md - Roll_Max
     mdd = -Daily_Drawdown.min()
 
-    #Sharpe
-    sharpe = pnl.mean() / pnl.std() * np.sqrt(n)
+
 
     #Return
     ret = pnl.cumsum().iloc[-1]
@@ -273,7 +272,7 @@ def run_pipeline(method, risk_aversion, window, rebalancing_period, dtindex, wee
     #Annualized return
 
     sharpe = pnl.mean() / pnl.std() * np.sqrt(n)
-    sharpe_correct = pnl[window:].mean() / pnl[window:].std()
+    sharpe_correct = pnl[window:].mean() / pnl[window:].std() * np.sqrt(n)
 
     pnl_shape = pnl.cumsum().shape[0]
     ann_return = (1 + pnl.cumsum().iloc[-1]) ** (n / pnl_shape) - 1
@@ -368,15 +367,15 @@ def run_pipeline_lstm(method, risk_aversion, window, window_back, start_investin
 if __name__ == '__main__':
 
     #PIPELINE SETTINGS
-    method = 'LSTM_Multi'
+    method = 'equal_weights'
     risk_aversion = 1
 
     #Note: window and rebalancing_period always expressed in weeks
     window = 52
-    rebalancing_period = 12
+    rebalancing_period = 52
 
     start_date = '2004-12-31'
-    end_date = '2008-12-28'
+    end_date = '2015-12-28'
     weekmask = True
 
     if weekmask:
@@ -387,7 +386,7 @@ if __name__ == '__main__':
         rebalancing_period = rebalancing_period * 5
 
     if "LSTM" in method:
-        start_investing_period = '2004-12-31'
+        start_investing_period = '2013-12-27'
         window_back = 50
         results = run_pipeline_lstm(method, risk_aversion, window, window_back, start_investing_period)
     else:
@@ -395,5 +394,7 @@ if __name__ == '__main__':
 
 
     print('\n============ RESULTS ============')
-    print('\nMethod: {}\nSharpe Ratio: {:.3f}\nMax DD: {:.3f}\nTotal return: {:.3f}\nAnnualized return:{:.3f}'. \
-          format(method, results['sharpe'], results['mdd'], results['return'], results['ann_return']))
+    s = ("\nMethod: {}\nSharpe Ratio: {:.3f}\nSharpe Ratio correct: {:.3f}\nMax DD: {:.3f}\nTotal return: {:.3f}"
+         "\nAnnualized return:{:.3f}\nAnnualized return correct:{:.3f}")
+    print(s.format(method, results['sharpe'], results['sharpe_correct'], results['mdd'], results['return'],
+                 results['ann_return'], results['ann_return_correct']))

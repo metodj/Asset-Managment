@@ -257,6 +257,8 @@ if __name__ == '__main__':
     window = 104
     rebalancing_period = 12
 
+    # Note: start date is the the first day you want to take into account in the whole process
+    # notice that the actual first trading day is start_date + window * 5
     start_date = '2012-12-31'
     end_date = '2015-12-28'
     weekmask = False

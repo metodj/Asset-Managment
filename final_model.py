@@ -4,6 +4,7 @@ from scipy.stats import multivariate_normal
 import osqp
 from scipy import sparse
 from sklearn import covariance as cv
+import sys
 
 class HMMPortfolioOptimizer:
     def __init__(self, start_date, end_date, weekmask):
@@ -250,6 +251,12 @@ class HMMPortfolioOptimizer:
 
 if __name__ == '__main__':
 
+    if len(sys.argv) < 2:
+        print("No stocks file specified. Aborting.")
+        exit()
+    else:
+        filename = sys.argv[1]
+
     # SETTINGS
     risk_aversion = 1
 
@@ -266,7 +273,7 @@ if __name__ == '__main__':
     pf_optimizer = HMMPortfolioOptimizer(start_date, end_date, weekmask)
 
     #Note: the file must be a csv with the same format as the file "markets_new.csv"
-    pf_optimizer.load_file("markets_new.csv")
+    pf_optimizer.load_file(filename)
 
     pf_optimizer.run(risk_aversion, window, rebalancing_period)
 

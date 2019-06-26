@@ -106,6 +106,7 @@ def HMM(X):
 
     return pred
 
+
 def HMM_mod(X):
     K = 3
     p = .1
@@ -154,7 +155,7 @@ def optimize(x, ra, method=None,  window=0, window_back=0, rebalancing_dates_cou
         x.drop(columns=['VIX', 'FVX', 'GSPC', 'GDAXI'], inplace=True)
 
     if method is 'LSTM_Multi':
-        model_path = "./model_lstm.ckpt"
+        model_path = "model_lstm.ckpt"
         ret = RNNLSTM(x, rebalancing_dates_counter, model_path)
 
     if method is 'LSTM_seq2seq':
@@ -167,13 +168,11 @@ def optimize(x, ra, method=None,  window=0, window_back=0, rebalancing_dates_cou
 
     cov = ra * pd.DataFrame(data=cv.oas(x)[0], index=x.columns, columns=x.columns).fillna(0)
 
-    print(cov)
 
     #Second baseline
     if method is 'Sample_mean':
         ret = x.mean().fillna(0).values
         cov = ra * pd.DataFrame(data=pd.DataFrame(x).cov(), index=x.columns, columns=x.columns).fillna(0)
-        print(cov)
 
 
 
@@ -233,6 +232,7 @@ def run_pipeline(method, risk_aversion, window, rebalancing_period, dtindex, wee
 
     input_returns = input_returns.iloc[1:, :]
     weights = pd.DataFrame(data=np.nan, columns=input_returns.columns, index=input_returns.index)
+
     for date in dtindex[window - 1:]:
         today = date
         returns = input_returns.loc[:today, :].tail(window)
@@ -245,7 +245,6 @@ def run_pipeline(method, risk_aversion, window, rebalancing_period, dtindex, wee
                 weights.loc[today, :] = optimize(returns_ext, risk_aversion, method)
             else:
                 weights.loc[today, :] = optimize(returns, risk_aversion, method)
-
         else:  # no re-optimization, re-balance the weights
             print('{}: relocate assets to preserve wights'.format(today))
             weights.loc[today, :] = weights.loc[last, :] * (1 + returns.loc[today, :]) \
@@ -272,20 +271,30 @@ def run_pipeline(method, risk_aversion, window, rebalancing_period, dtindex, wee
     ret = pnl.cumsum().iloc[-1]
 
     #Annualized return
+
+    sharpe = pnl.mean() / pnl.std() * np.sqrt(n)
+    sharpe_correct = pnl[window:].mean() / pnl[window:].std()
+
     pnl_shape = pnl.cumsum().shape[0]
     ann_return = (1 + pnl.cumsum().iloc[-1]) ** (n / pnl_shape) - 1
 
-    return {"sharpe": sharpe, "return": ret, "mdd": mdd, "ann_return": ann_return}
+    pnl_shape_correct = pnl.cumsum()[window:].shape[0]
+    ann_return_correct = (1 + pnl.cumsum().iloc[-1]) ** (n / pnl_shape_correct) - 1
+
+    return {"sharpe": sharpe, "sharpe_correct": sharpe_correct, "return": ret,
+            "mdd": mdd, "ann_return": ann_return, "ann_return_correct": ann_return_correct}
+
 
 def run_pipeline_lstm(method, risk_aversion, window, window_back, start_investing_period):
+    print('Running pipeline for {}. Window {}. Window_back{}'.format(method, window, window_back))
     # set dates (and freq)
     dtindex = pd.bdate_range('1992-12-31', '2015-12-28', weekmask='Fri', freq='C')
     start_investing_period = dtindex.get_loc(start_investing_period)
-
+    # dtindex = dtindex[start_investing_period:]
     rebalancing_period = window
 
-    rebalancing_dates = dtindex[start_investing_period::rebalancing_period]  # to warm-up LSTM
-    print("Start: ", rebalancing_dates[0])
+    rebalancing_dates = dtindex[start_investing_period::rebalancing_period]
+    print("Rebalancing dates: ", rebalancing_dates)
     df = pd.read_csv('markets_new.csv', delimiter=',')
     df0 = pd.DataFrame(data=df.values, columns=df.columns, index=pd.to_datetime(df['Date'], format='%d/%m/%Y'))
     df0 = df0.reindex(dtindex)
@@ -298,7 +307,7 @@ def run_pipeline_lstm(method, risk_aversion, window, window_back, start_investin
     # param for restoring the LSTM model
     rebalancing_dates_counter = 0
 
-    for date in dtindex[window - 1:]:
+    for date in dtindex[start_investing_period:]:
         today = date
         if rebalancing_dates_counter == 0:
             returns = input_returns.loc[:today, :]  # .tail(window)
@@ -310,10 +319,11 @@ def run_pipeline_lstm(method, risk_aversion, window, window_back, start_investin
         last = returns.index[-2]
 
         if today in rebalancing_dates:  # re-optimize and get new weights
-            print("rebalancing date: ", today)
+            print('{}: Rebalancing weights'.format(today))
             weights.loc[today, :] = optimize(returns, risk_aversion, method, window, window_back, rebalancing_dates_counter)
             rebalancing_dates_counter += 1
         else:  # no re-optimization, re-balance the weights
+            print('{}: relocate assets to preserve weights'.format(today))
             weights.loc[today, :] = weights.loc[last, :] * (1 + returns.loc[today, :]) \
                                     / (1 + (weights.loc[last, :] * returns.loc[today, :]).sum())
 
@@ -336,12 +346,13 @@ def run_pipeline_lstm(method, risk_aversion, window, window_back, start_investin
 
     # sharpe
     sharpe = pnl.mean() / pnl.std() * np.sqrt(52)
+    sharpe_correct = pnl[start_investing_period:].mean() / pnl[start_investing_period:].std() * np.sqrt(52)
 
     #cum return
     ret = pnl.cumsum().iloc[-1]
 
-    plt.title('Sharpe : {:.3f} \n Total return: {:.3f}, Annunalized return: {:.3f} \n Max drawdown: {:.3f}'. \
-              format(sharpe, pnl.cumsum().iloc[-1], ann_return, abs(Daily_Drawdown.min())))
+    plt.title('Sharpe : {:.3f}, Sharpe correct : {:.3f} \n Total return: {:.3f}, Annunalized return: {:.3f} \n Max drawdown: {:.3f}'. \
+              format(sharpe, sharpe_correct, pnl.cumsum().iloc[-1], ann_return, abs(Daily_Drawdown.min())))
 
     plt.figure
     df0.pct_change().cumsum().plot()
@@ -351,22 +362,22 @@ def run_pipeline_lstm(method, risk_aversion, window, window_back, start_investin
 
     plt.show()
 
-    return {"sharpe": sharpe, "return": ret, "mdd": mdd, "ann_return": ann_return}
+    return {"sharpe": sharpe, "sharpe_correct": sharpe_correct, "return": ret, "mdd": mdd, "ann_return": ann_return}
 
 
 if __name__ == '__main__':
 
     #PIPELINE SETTINGS
-    method = 'HMM_mod'
+    method = 'LSTM_Multi'
     risk_aversion = 1
 
     #Note: window and rebalancing_period always expressed in weeks
-    window = 104
+    window = 52
     rebalancing_period = 12
 
-    start_date = '2012-12-31'
-    end_date = '2015-12-28'
-    weekmask = False
+    start_date = '2004-12-31'
+    end_date = '2008-12-28'
+    weekmask = True
 
     if weekmask:
         dtindex = pd.bdate_range(start_date, end_date, weekmask='Fri', freq='C')

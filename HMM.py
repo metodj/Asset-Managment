@@ -92,7 +92,7 @@ def expectation_maximization(data, K, iter = 50, p = .3):
 
             #Compute the mean of each asset for each state
             if dataLocal.shape[0] > 1:
-                mu[:, k] = by_mean(dataLocal) # IMPORTANT: here we are using only datapoints that belong to state k !!
+                mu[:, k] = dataLocal.mean() # IMPORTANT: here we are using only datapoints that belong to state k !!
             else:
                 mu[:, k] = 0
 
@@ -188,7 +188,7 @@ def expectation_maximization_mod(data_train, tradable_assets, K, iter=50, p=.1):
             dataLocal = tradable_assets.loc[maxInd == k, :]
 
             if dataLocal.shape[0] > 1:
-                mu_tradable[:, k] = by_mean(dataLocal)  # IMPORTANT: here we are using only datapoints that belong to state k !!
+                mu_tradable[:, k] = dataLocal.mean()  # IMPORTANT: here we are using only datapoints that belong to state k !!
             else:
                 mu_tradable[:, k] = 0
 

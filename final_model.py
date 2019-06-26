@@ -147,8 +147,7 @@ class HMMPortfolioOptimizer:
             dataLocal = data.loc[self.states == k, :]
 
             if dataLocal.shape[0] > 1:
-                mu_tradable[:, k] = self.__by_mean(
-                    dataLocal)
+                mu_tradable[:, k] = dataLocal.mean()
             else:
                 mu_tradable[:, k] = 0
 
@@ -221,10 +220,11 @@ class HMMPortfolioOptimizer:
             n = 252
 
         # Max drawdown
-        md = self.pnl.cumsum()[self.window:]
+        md = self.pnl.cumsum()
         Roll_Max = md.rolling(window=md.shape[0], min_periods=1).max()
         Daily_Drawdown = md - Roll_Max
         mdd = -Daily_Drawdown.min()
+
 
         # Sharpe
         sharpe = self.pnl.mean() / self.pnl.std() * np.sqrt(n)
@@ -243,6 +243,7 @@ class HMMPortfolioOptimizer:
     def __init_A(self, p, K):
         return np.ones((K, K)) * p + np.eye(K) * (1 - K*p)
 
+    # Prior too strong
     def __by_mean(self, X):
         Factor = .01
         sigma = np.max(X.std())
@@ -254,14 +255,12 @@ class HMMPortfolioOptimizer:
 
 
     def plot_pnl(self):
-        print(self.pnl)
         self.pnl.cumsum().plot()
         plt.show()
 
 
 
 if __name__ == '__main__':
-
     if len(sys.argv) < 2:
         print("No stocks file specified. Aborting.")
         exit()
@@ -274,7 +273,7 @@ if __name__ == '__main__':
     else:
         filename = sys.argv[1]
         start_date = sys.argv[2]
-        end_date = sys.argv[3] 
+        end_date = sys.argv[3]
 
     # SETTINGS
     risk_aversion = 1
@@ -285,9 +284,9 @@ if __name__ == '__main__':
 
     # Note: start date is the the first day you want to take into account in the whole process
     # notice that the actual first trading day is start_date + window * 5
-    #start_date = '2012-12-31'
-    #end_date = '2015-4-28'
-    #filename = 'markets_new.csv'
+    start_date = '2004-12-31'
+    end_date = '2015-4-28'
+    filename = 'markets_new.csv'
     weekmask = False
 
     pf_optimizer = HMMPortfolioOptimizer(start_date, end_date, weekmask)

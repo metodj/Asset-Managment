@@ -153,6 +153,7 @@ def optimize(x, ra, method=None,  window=0, window_back=0, rebalancing_dates_cou
     if method is 'HMM_mod':
         ret = HMM_mod(x)
         x.drop(columns=['VIX', 'FVX', 'GSPC', 'GDAXI'], inplace=True)
+        print(ret)
 
     if method is 'LSTM_Multi':
         model_path = "model_lstm.ckpt"
@@ -264,7 +265,15 @@ def run_pipeline(method, risk_aversion, window, rebalancing_period, dtindex, wee
     Daily_Drawdown = md - Roll_Max
     mdd = -Daily_Drawdown.min()
 
+    pnl.cumsum().plot()
 
+    plt.figure
+    df0.pct_change().cumsum().plot()
+
+    plt.figure
+    weights.plot()
+
+    plt.show()
 
     #Return
     ret = pnl.cumsum().iloc[-1]
@@ -273,6 +282,8 @@ def run_pipeline(method, risk_aversion, window, rebalancing_period, dtindex, wee
 
     sharpe = pnl.mean() / pnl.std() * np.sqrt(n)
     sharpe_correct = pnl[window:].mean() / pnl[window:].std() * np.sqrt(n)
+
+    print(weights)
 
     pnl_shape = pnl.cumsum().shape[0]
     ann_return = (1 + pnl.cumsum().iloc[-1]) ** (n / pnl_shape) - 1
@@ -367,16 +378,16 @@ def run_pipeline_lstm(method, risk_aversion, window, window_back, start_investin
 if __name__ == '__main__':
 
     #PIPELINE SETTINGS
-    method = 'equal_weights'
+    method = 'HMM'
     risk_aversion = 1
 
     #Note: window and rebalancing_period always expressed in weeks
-    window = 52
-    rebalancing_period = 52
+    window = 104
+    rebalancing_period = 12
 
     start_date = '2004-12-31'
-    end_date = '2015-12-28'
-    weekmask = True
+    end_date = '2015-4-28'
+    weekmask = False
 
     if weekmask:
         dtindex = pd.bdate_range(start_date, end_date, weekmask='Fri', freq='C')

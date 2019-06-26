@@ -5,6 +5,9 @@ import osqp
 from scipy import sparse
 from sklearn import covariance as cv
 import sys
+import matplotlib
+matplotlib.use("TkAgg")
+import matplotlib.pyplot as plt
 
 class HMMPortfolioOptimizer:
     def __init__(self, start_date, end_date, weekmask):
@@ -207,7 +210,8 @@ class HMMPortfolioOptimizer:
                 weights.loc[today, :] = weights.loc[last, :] * (1 + returns.loc[today, :]) \
                                         / (1 + (weights.loc[last, :] * returns.loc[today, :]).sum())
 
-        self.pnl = (weights.shift(1) * input_returns).sum(axis=1)
+        pnl = (weights.shift(1) * input_returns).sum(axis=1)
+        self.pnl = pnl[window-1:]
 
     def get_metrics(self):
         # Indicators calculation
@@ -249,13 +253,28 @@ class HMMPortfolioOptimizer:
                 m / sigma ** 2 + 1 / sigma_0 ** 2)).values
 
 
+    def plot_pnl(self):
+        print(self.pnl)
+        self.pnl.cumsum().plot()
+        plt.show()
+
+
+
 if __name__ == '__main__':
 
     if len(sys.argv) < 2:
         print("No stocks file specified. Aborting.")
         exit()
+    elif len(sys.argv) < 3:
+        print("No start date specified. Aborting.")
+        exit()
+    elif len(sys.argv) < 4:
+        print("No end date specified. Aborting.")
+        exit()
     else:
         filename = sys.argv[1]
+        start_date = sys.argv[2]
+        end_date = sys.argv[3] 
 
     # SETTINGS
     risk_aversion = 1
@@ -266,8 +285,9 @@ if __name__ == '__main__':
 
     # Note: start date is the the first day you want to take into account in the whole process
     # notice that the actual first trading day is start_date + window * 5
-    start_date = '2012-12-31'
-    end_date = '2015-12-28'
+    #start_date = '2012-12-31'
+    #end_date = '2015-4-28'
+    #filename = 'markets_new.csv'
     weekmask = False
 
     pf_optimizer = HMMPortfolioOptimizer(start_date, end_date, weekmask)
@@ -282,3 +302,4 @@ if __name__ == '__main__':
     print('\n============ RESULTS ============')
     print('\nSharpe Ratio: {:.3f}\nMax DD: {:.3f}\nTotal return: {:.3f}\nAnnualized return:{:.3f}'. \
           format(results['sharpe'], results['mdd'], results['return'], results['ann_return']))
+    pf_optimizer.plot_pnl()
